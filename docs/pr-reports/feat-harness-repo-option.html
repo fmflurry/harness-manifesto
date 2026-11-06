@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>feat(harness): --repo for goal and worktree commands</title>
+<style>
+body{background:#FAF6EE;color:#2b2622;font-family:Georgia,"Times New Roman",serif;margin:0;padding:32px;line-height:1.45}
+h1{font-size:26px;margin:0 0 6px}h2{font-size:18px;margin:0 0 10px}.sub{color:#6b6058;margin-bottom:24px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.full{grid-column:1/-1}
+.card{background:#fff;border-radius:14px;padding:18px 20px;box-shadow:0 1px 4px rgba(60,40,20,.08)}
+.flow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}
+.step{background:#F3EBDD;border-radius:10px;padding:8px 10px}.bad{background:#F6D9D2}.good{background:#D9EBD7}.arrow{color:#9b8f84}
+code{font-family:Menlo,monospace;font-size:12.5px;background:#F3EBDD;padding:1px 4px;border-radius:4px}
+ul{margin:6px 0 0 18px;padding:0}li{margin:3px 0;font-size:14px}
+@media (max-width:820px){.grid{grid-template-columns:1fr}body{padding:16px}}
+</style></head><body>
+<h1>Manage another repo's goal worktrees, with or without Orca</h1>
+<div class="sub">branch <code>feat/harness-repo-option</code> · dispatcher, guard (2 copies), run.sh, ship skill, README EN/FR, plugin 0.4.38</div>
+<div class="grid">
+<div class="card full"><h2>Before</h2>
+<div class="flow"><span class="step">session in repo A</span><span class="arrow">→</span><span class="step bad"><code>cd B &amp;&amp; agent-harness ship-init …</code> denied</span><span class="arrow">→</span><span class="step bad"><code>CLAUDE_PROJECT_DIR=B …</code> denied</span><span class="arrow">→</span><span class="step bad">only way: launch via Orca</span></div>
+<h2 style="margin-top:16px">After</h2>
+<div class="flow"><span class="step">session in repo A</span><span class="arrow">→</span><span class="step good"><code>agent-harness ship-init feat ui x --goal "…" --repo /abs/B</code></span><span class="arrow">→</span><span class="step">dispatcher: path absolute, is a checkout top level</span><span class="arrow">→</span><span class="step good">cd B, CLAUDE_PROJECT_DIR=B, run the script</span></div>
+</div>
+<div class="card"><h2>Rules</h2><ul>
+<li>commands: ship-init, ship-merge, cleanup, teardown-merged-worktree, worktree-rm, goal</li>
+<li><code>--repo</code> only as the last two arguments; anything else exits 2</li>
+<li>refused: relative path, subdirectory, non-git dir, missing dir</li>
+<li><code>goal … --repo &lt;goal worktree&gt;</code>; the others take B's main checkout</li>
+<li>registry and goal state are B's; A's stop gate keeps reading A</li>
+</ul></div>
+<div class="card"><h2>Guard</h2><ul>
+<li>new <code>drop_repo_opt</code>: removes a trailing <code>--repo /abs</code>, denies every other <code>--repo</code></li>
+<li>still denied: cd prefix, env prefix, <code>$VAR</code> paths, <code>--repo=</code>, repeated or misplaced <code>--repo</code></li>
+<li>differential: 2712 comparisons, 0 decision changes for existing cases</li>
+</ul></div>
+<div class="card"><h2>Tests</h2><ul>
+<li>run.sh 2380 pass; 75 failures identical to master</li>
+<li>ship-init --repo from another repo: worktree, registry and goal state in the target; caller has none; caller stop gate does not block</li>
+<li>goal pr --repo writes the target worktree goal</li>
+<li>bad --repo refused with no worktree or registry; RED without the dispatcher: 8 checks fail</li>
+<li>guard subset 985/0 and 988/0 (macOS bash 3.2)</li>
+</ul></div>
+<div class="card"><h2>Risks</h2><ul>
+<li>A goal text arg that is literally <code>--repo</code> is refused (fail closed)</li>
+<li>B's own autonomy flag and config apply, not A's</li>
+<li>Backup and prune-branches cleanup comes in PR 3</li>
+</ul></div>
+</div>
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/settings-opencode  feat/harness-repo-option  pr n/a. Status: complete.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">5m43s</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">2s (gaps over 5m excluded)</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">cursor 1, claude 0, opencode 0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">2</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr></table>
+<p style="margin:10px 0 0">Tools: Bash 2</p>
+<p style="margin:4px 0 0">Skills: none</p>
+<p style="margin:4px 0 0">Agents: main 0, generalPurpose 2</p>
+<p style="margin:4px 0 0">Failure tools: none. Durations: n/a.</p>
+</section>
+</body></html>
