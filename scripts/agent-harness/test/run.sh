@@ -2487,6 +2487,37 @@ LH ship-init fix ui garbage-managed >/dev/null 2>&1; rc=$?
 check "ship-init: an unusable orca repo list counts as not managed" test $rc -eq 0
 check "ship-init: not-managed repo uses git" test "$(lreg fix-ui-garbage-managed .via)" = git
 
+# --repo: a session whose working directory is another repo starts and manages a goal of the target repo
+lw_fixture git
+LA="$LROOT/caller"; git init -q "$LA"
+LCWD="$LA" LH agent-harness ship-init feat ui repo-x --goal "remote goal" --repo "$LM" >"$FX/out" 2>"$FX/err"; rc=$?
+LT="$LM-wt/feat-ui-repo-x"
+check "--repo ship-init from another repo: exits 0" test $rc -eq 0
+check "--repo ship-init: prints the target worktree" test "$(cat "$FX/out")" = "$LT"
+check "--repo ship-init: worktree belongs to the target repo" test "$(git -C "$LT" rev-parse --path-format=absolute --git-common-dir)" = "$(git -C "$LM" rev-parse --path-format=absolute --git-common-dir)"
+check "--repo ship-init: registry entry in the target repo" test "$(lreg feat-ui-repo-x .goal)" = "remote goal"
+check "--repo ship-init: goal state under the target main checkout" test -f "$(scoped_goal_file "$LT")" -a "$(dirname "$(scoped_goal_file "$LT")")" = "$LM/.claude/state/goals"
+check "--repo ship-init: the caller repo gets no goal state" test ! -e "$LA/.claude" -a ! -e "$LA/.git/agent-harness"
+LCWD="$LA" LH agent-harness goal pr 9 --repo "$LT" >/dev/null 2>&1; rc=$?
+check "--repo goal pr: exits 0" test $rc -eq 0
+check "--repo goal pr: writes the target worktree's goal" test "$(jq -r .pr "$(scoped_goal_file "$LT")")" = 9
+out="$(cd "$LA" && echo '{}' | env -u AGENT_STATE_DIR CLAUDE_PROJECT_DIR="$LA" PATH="$TMP/lsleep:$TMP/lbin:$PATH" bash "$HOOKS/ship-stop-gate.sh" 2>/dev/null)"
+check "--repo: the caller session's stop gate does not block on the target goal" bash -c '! grep -q "\"decision\"" <<<"$1"' _ "$out"
+mkdir -p "$LROOT/plain" "$LM/sub"
+for bad in "main" "$LROOT/plain" "$LM/sub" "$LROOT/missing"; do
+  LCWD="$LROOT" LH agent-harness ship-init feat ui repo-bad --repo "$bad" >"$FX/out" 2>"$FX/err"; rc=$?
+  check "--repo $bad is refused: exit 2" test $rc -eq 2
+  check "--repo $bad is refused: no worktree" test ! -e "$LM-wt/feat-ui-repo-bad"
+  check "--repo $bad is refused: no registry entry" test ! -e "$(lreg_file feat-ui-repo-bad)"
+  [ "$bad" != "$LM/sub" ] || check "--repo subdirectory refusal names the top level" grep -q "is not the top level of a git checkout" "$FX/err"
+done
+LCWD="$LA" LH agent-harness ship-init feat ui repo-bad --repo "$LM" --goal g >/dev/null 2>"$FX/err"; rc=$?
+check "--repo before other arguments is refused" test $rc -eq 2
+LCWD="$LA" LH agent-harness autonomy status --repo "$LM" >/dev/null 2>"$FX/err"; rc=$?
+check "--repo on a command that does not take it is refused" test $rc -eq 2
+check "--repo on a command that does not take it names the command" grep -q 'autonomy does not take --repo' "$FX/err"
+check "--repo before other arguments: no worktree" test ! -e "$LM-wt/feat-ui-repo-bad"
+
 lw_adopt_fixture() {
   lw_fixture "$1"
   ( cd "$LM" && git checkout -q -b feat/adopt-me && echo d >d && git add d && git commit -qm D \
@@ -2811,6 +2842,11 @@ LG_ALLOW=(
   "agent-harness goal reset --field gate"
   "agent-harness goal reset --field wait"
   "agent-harness goal reset --field all"
+  "agent-harness ship-init feat ui x --goal build the hud --repo /abs/repo"
+  "agent-harness ship-init feat ui x --repo /abs/repo"
+  "agent-harness ship-init --adopt 7 --repo /abs/repo"
+  "agent-harness teardown-merged-worktree 5 --repo /abs/repo"
+  "agent-harness goal pr 5 --repo /abs/repo-wt/feat-x"
 )
 LG_DENY=(
   "bash ~/.claude/scripts/agent-harness/teardown-merged-worktree.sh 5"
@@ -2876,6 +2912,16 @@ LG_DENY=(
   "agent-harness ship-init feat ui x; echo hi"
   "agent-harness ship-init feat ui x | tee /tmp/x"
   "true && agent-harness ship-init feat ui x"
+  "agent-harness ship-init feat ui x --repo rel/repo"
+  "agent-harness ship-init feat ui x --repo"
+  "agent-harness ship-init feat ui x --repo /abs/repo --goal g"
+  "agent-harness ship-init feat ui x --repo=/abs/repo"
+  "agent-harness ship-init feat ui x --repo /a --repo /b"
+  "agent-harness ship-init feat ui x --repo \$HOME/repo"
+  "cd /abs/repo && agent-harness ship-init feat ui x --repo /abs/repo"
+  "CLAUDE_PROJECT_DIR=/abs/repo agent-harness ship-init feat ui x --repo /abs/repo"
+  "agent-harness teardown-merged-worktree 5 --repo rel"
+  "agent-harness teardown-merged-worktree --repo /abs/repo 5"
 )
 for mode in off on; do
   reset; [ "$mode" = on ] && flag_on
@@ -2893,7 +2939,17 @@ reset; flag_on
 for c in "cd /tmp/x && agent-harness ship-init feat ui x" "agent-harness ship-init feat ui x && echo hi" "true && agent-harness teardown-merged-worktree 5"; do
   check "lifecycle guard denies a chain: $c" denied "$c"
   check "lifecycle guard names the cd prefix or chain: $c" grep -q 'not after a cd prefix or in a && ; | chain' <<<"$(gate_reason "$c")"
-  check "lifecycle guard says ship-init runs from the target repo: $c" grep -q 'working directory is the target repo' <<<"$(gate_reason "$c")"
+  check "lifecycle guard points at --repo for another repo: $c" grep -q 'end the command with --repo <absolute path' <<<"$(gate_reason "$c")"
+done
+for c in "agent-harness worktree-rm /x --confirmed --repo /abs/repo" "agent-harness ship-merge 5 --repo /abs/repo" \
+  "agent-harness ship-merge 5 --method rebase --repo /abs/repo" "agent-harness cleanup 5 --repo /abs/repo" "agent-harness cleanup 5 --keep-branch --repo /abs/repo"; do
+  check "repo guard (flag on) allows: $c" allowed "$c"
+done
+for c in "agent-harness worktree-rm /x --confirmed --repo rel" "agent-harness worktree-rm /x --repo /abs/repo --confirmed" \
+  "agent-harness ship-merge 5 --repo rel" "agent-harness ship-merge 5 --repo /abs/repo --method rebase" "agent-harness ship-merge 5 --repo=/abs/repo" \
+  "agent-harness cleanup 5 --repo rel" "agent-harness cleanup 5 --repo /abs/repo --keep-branch" "agent-harness cleanup --repo /abs/repo" \
+  "GH_BIN=/x agent-harness cleanup 5 --repo /abs/repo"; do
+  check "repo guard (flag on) denies: $c" denied "$c"
 done
 check "lifecycle guard keeps the argument message for a bad shape" grep -q 'take exactly their documented arguments' <<<"$(gate_reason "agent-harness ship-init feat Ui x")"
 check "prune-backups guard names the documented shape" grep -qF 'prune-backups takes exactly `agent-harness prune-backups [--confirmed]`' <<<"$(gate_reason "agent-harness prune-backups --force")"

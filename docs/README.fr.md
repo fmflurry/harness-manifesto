@@ -1041,6 +1041,8 @@ agent-harness cleanup <pr> [--keep-branch] [--no-checkout]  # après MERGED : su
 agent-harness prune-backups [--confirmed]  # branches backup/* orphelines (aucun goal ni registre) : supprime celles déjà dans origin/<base>, archive les autres sous refs/harness/backups/ (simulation sans --confirmed)
 ```
 
+**Autre dépôt.** `ship-init`, `ship-merge`, `cleanup`, `teardown-merged-worktree`, `worktree-rm` et `goal` acceptent un `--repo <chemin absolu>` final : une session dont le répertoire de travail est le dépôt A gère un goal du dépôt B sans Orca, par exemple `agent-harness ship-init feat ui x --goal "..." --repo /chemin/abs/vers/B`. Le chemin doit être la racine d'un checkout git : le checkout principal de B, ou un worktree de goal de B pour `goal`. Un chemin relatif, un sous-répertoire, un répertoire hors git, ou un `--repo` ailleurs qu'en dernier sont refusés. Le registre et l'état du goal sont ceux de B. Le stop gate de la session appelante lit toujours son propre checkout : il ne bloque pas sur le goal de B et ne s'y lie pas. Le guard autorise exactement cette forme finale, en une commande simple. Un préfixe `cd`, un préfixe d'environnement comme `CLAUDE_PROJECT_DIR=`, et toute substitution restent refusés.
+
 Le skill `ship` (`skills/ship/`) tient les étapes, et le skill `autonomous` pilote la bascule. Les règles de comportement sont
 dans `.claude/rules/common/autonomy.md` (Claude Code) et `instructions/autonomy.md` (OpenCode).
 
@@ -1480,6 +1482,8 @@ agent-harness teardown-merged-worktree <pr>  # après MERGED : retire le worktre
 agent-harness cleanup <pr> [--keep-branch]  # après MERGED : supprime la branche de la PR et les backups du goal (PR non enregistrées ; aussi lancé par ship-merge)
 agent-harness prune-backups [--confirmed]  # branches backup/* orphelines (aucun goal ni registre) : supprime celles déjà dans origin/<base>, archive les autres sous refs/harness/backups/ (simulation sans --confirmed)
 ```
+
+**Autre dépôt.** `ship-init`, `ship-merge`, `cleanup`, `teardown-merged-worktree`, `worktree-rm` et `goal` acceptent un `--repo <chemin absolu>` final : une session dont le répertoire de travail est le dépôt A gère un goal du dépôt B sans Orca, par exemple `agent-harness ship-init feat ui x --goal "..." --repo /chemin/abs/vers/B`. Le chemin doit être la racine d'un checkout git : le checkout principal de B, ou un worktree de goal de B pour `goal`. Un chemin relatif, un sous-répertoire, un répertoire hors git, ou un `--repo` ailleurs qu'en dernier sont refusés. Le registre et l'état du goal sont ceux de B. Le stop gate de la session appelante lit toujours son propre checkout : il ne bloque pas sur le goal de B et ne s'y lie pas. Le guard autorise exactement cette forme finale, en une commande simple. Un préfixe `cd`, un préfixe d'environnement comme `CLAUDE_PROJECT_DIR=`, et toute substitution restent refusés.
 
 Le skill `ship` (`skills/ship/`) gère les étapes, et le skill `autonomous` pilote la bascule. Les règles de comportement sont dans `.claude/rules/common/autonomy.md` (Claude Code) et `instructions/autonomy.md` (OpenCode).
 

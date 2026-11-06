@@ -190,7 +190,7 @@ deny() { emit deny "Blocked by git-guard: merge via agent-harness ship-merge, pu
 deny_worktree() { emit deny "Blocked by git-guard: remove worktrees only via \`agent-harness worktree-rm <path> --confirmed\`."; }
 deny_harness_env() { emit deny "Blocked by git-guard: run agent-harness as one plain command; no env overrides, exported functions or shell startup files."; }
 deny_harness_cmd() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree take exactly their documented arguments as one plain command."; }
-deny_harness_chain() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree must run alone, not after a cd prefix or in a && ; | chain. They act on the session's working directory: run ship-init from a session whose working directory is the target repo."; }
+deny_harness_chain() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree must run alone, not after a cd prefix or in a && ; | chain. They act on the session's working directory; for another repo, end the command with --repo <absolute path of its checkout>."; }
 deny_cleanup_shape() { emit deny "Blocked by git-guard: cleanup takes exactly \`agent-harness cleanup <pr> [--keep-branch]\`: a PR number, then optionally --keep-branch, and no other flag (no --confirmed, no --help)."; }
 deny_shell_flags() { emit deny "Blocked by git-guard: run the harness script without shell options (no -x, -e, -o, +O or similar before it)."; }
 deny_prune_shape() { emit deny "Blocked by git-guard: prune-backups takes exactly \`agent-harness prune-backups [--confirmed]\`: no other argument."; }
@@ -944,6 +944,16 @@ shell_flag_run() {
   done
   return 1
 }
+# drop_repo_opt: removes a trailing `--repo <absolute path>` from RA. Returns 1 for any other --repo, which callers deny.
+drop_repo_opt() {
+  local n="${#RA[@]}" a
+  if [ "$n" -ge 2 ] && [ "${RA[n - 2]}" = --repo ]; then
+    [[ "${RA[n - 1]}" == /* ]] || return 1
+    RA=("${RA[@]:0:n-2}")
+  fi
+  for a in "${RA[@]}"; do case "$a" in --repo | --repo=*) return 1 ;; esac; done
+  return 0
+}
 check_worktree_rm() {
   local has_assign="$1" c0="$2"; shift 2
   local rest=() legit=0 script
@@ -966,6 +976,7 @@ check_worktree_rm() {
     *) return 1 ;;
   esac
   [ "$has_assign" = 0 ] || deny_worktree
+  RA=("${rest[@]}"); drop_repo_opt || deny_worktree; rest=("${RA[@]}")
   local a paths=0 confirmed=0
   for a in "${rest[@]}"; do
     case "$a" in
@@ -989,6 +1000,7 @@ check_ship_merge() {
     *) return 1 ;;
   esac
   [ "$has_assign" = 0 ] || deny
+  RA=("${rest[@]}"); drop_repo_opt || deny; rest=("${RA[@]}")
   [[ "${rest[0]:-}" =~ ^[0-9]+$ ]] || deny
   local i=1 seen_confirmed=0 seen_method=0 seen_keep=0
   while [ "$i" -lt "${#rest[@]}" ]; do
@@ -1021,6 +1033,7 @@ check_cleanup() {
     *) return 1 ;;
   esac
   [ "$has_assign" = 0 ] || deny_harness_env
+  RA=("${rest[@]}"); drop_repo_opt || deny_cleanup_shape; rest=("${RA[@]}")
   [[ "${rest[0]:-}" =~ ^[0-9]+$ ]] || deny_cleanup_shape
   [ "${#rest[@]}" -le 2 ] || deny_cleanup_shape
   [ "${#rest[@]}" -lt 2 ] || [ "${rest[1]}" = --keep-branch ] || deny_cleanup_shape
@@ -1087,6 +1100,7 @@ check_harness_cmd() {
     *) return 1 ;;
   esac
   [ "$has_assign" = 0 ] || deny_harness_cmd
+  RA=("$@"); drop_repo_opt || deny_harness_cmd; set -- "${RA[@]}"
   case "$shape" in
     pr) { [ "$#" -eq 1 ] && [[ "$1" =~ ^[0-9]+$ ]]; } || deny_harness_cmd ;;
     init)
