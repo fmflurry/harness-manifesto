@@ -1022,8 +1022,8 @@ la branche et le registre (`skills/ship/SKILL.md`, Blocked path).
 - Jamais retirer un worktree avec `git worktree remove` brut. `agent-harness worktree-rm <path> --confirmed` retire un
   worktree propre dont la branche est fusionnée (y compris un squash détecté par `gh pr view --json state`).
   `agent-harness teardown-merged-worktree <pr>` retire le worktree de goal enregistré après que cette PR est MERGED, en
-  mode autonome, et supprime ses branches et son registre. Jamais supprimer une branche sauf par ce teardown ou
-  `agent-harness cleanup`.
+  mode autonome, et supprime ses branches et son registre. Jamais supprimer une branche sauf par ce teardown,
+  `agent-harness cleanup`, ou `agent-harness prune-backups` pour les branches `backup/*` orphelines.
 - Jamais fusionner une PR qui correspond à `protectedPaths` tant que le flag est actif. Un humain passe `--confirmed`.
 - Jamais ajouter un label, publier un commentaire, ou créer un status pour passer un refus de `ship-merge`.
 - Jamais notifier un progrès. Le run ne déclenche ni build ni release.
@@ -1038,6 +1038,7 @@ agent-harness ship-init <type> <scope> <desc> --goal "<text>"  # première actio
 agent-harness goal decisions-path        # journal de décisions de ce checkout : .claude/state/decisions/<slug>.tsv par goal (créé par ship-init, archivé dans decisions/archive/ par le teardown), sinon .claude/state/decisions.tsv
 agent-harness teardown-merged-worktree <pr>  # après MERGED : retire le worktree enregistré, les branches et le registre (lancé par ship-merge)
 agent-harness cleanup <pr> [--keep-branch] [--no-checkout]  # après MERGED : supprime la branche de tête de la PR et les backups du goal (PR non enregistrées ; aussi lancé par ship-merge ; le teardown passe --no-checkout)
+agent-harness prune-backups [--confirmed]  # branches backup/* orphelines (aucun goal ni registre) : supprime celles déjà dans origin/<base>, archive les autres sous refs/harness/backups/ (simulation sans --confirmed)
 ```
 
 Le skill `ship` (`skills/ship/`) tient les étapes, et le skill `autonomous` pilote la bascule. Les règles de comportement sont
@@ -1477,6 +1478,7 @@ agent-harness notify done "<msg>" <pr>   # notifier uniquement sur question, wai
 agent-harness ship-init <type> <scope> <desc> --goal "<text>"  # première action de /ship : worktree du goal + registre (ou --adopt <pr>)
 agent-harness teardown-merged-worktree <pr>  # après MERGED : retire le worktree enregistré, les branches et le registre (lancé par ship-merge)
 agent-harness cleanup <pr> [--keep-branch]  # après MERGED : supprime la branche de la PR et les backups du goal (PR non enregistrées ; aussi lancé par ship-merge)
+agent-harness prune-backups [--confirmed]  # branches backup/* orphelines (aucun goal ni registre) : supprime celles déjà dans origin/<base>, archive les autres sous refs/harness/backups/ (simulation sans --confirmed)
 ```
 
 Le skill `ship` (`skills/ship/`) gère les étapes, et le skill `autonomous` pilote la bascule. Les règles de comportement sont dans `.claude/rules/common/autonomy.md` (Claude Code) et `instructions/autonomy.md` (OpenCode).

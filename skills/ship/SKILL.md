@@ -303,7 +303,8 @@ Then open the show-me HTML locally for the user. Do not create throwaway screens
   repo. `agent-harness teardown-merged-worktree <pr>` remains the path that also deletes the registered goal's branches
   and registry after that PR is MERGED. Raw `git worktree remove` stays forbidden in every mode (see the worktree
   destruction rule, the `worktree-destruction-safety` skill). No deny-list commands (see the autonomy rule).
-- Branches are deleted only by `agent-harness teardown-merged-worktree` or `agent-harness cleanup`, never by raw
+- Branches are deleted only by `agent-harness teardown-merged-worktree`, `agent-harness cleanup`, or `agent-harness prune-backups`
+  (leftover `backup/*` branches, archived first), never by raw
   `git branch -D`, `git push --delete`, or the API.
 - A PR that matches `protectedPaths` is refused by `ship-merge` in autonomous mode. A human merges it with `--confirmed`.
 - Never add a label, post a comment, or create a status to get past a refusal. Gates read only what the host and

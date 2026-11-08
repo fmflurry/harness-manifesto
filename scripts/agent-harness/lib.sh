@@ -349,6 +349,27 @@ goal_update() {
 
 cfg_get() { [ -f "$CONFIG_FILE" ] || return 0; jq -r "$1" "$CONFIG_FILE" 2>/dev/null || true; }
 
+# Backup branch names the harness creates and may retire.
+BACKUP_RE='^backup/[a-z0-9]+(-[a-z0-9]+)*$'
+
+# backup_retire <checkout> <branch> <merged>: deletes a merged backup, or archives an unmerged one under
+# refs/harness/backups/ and then deletes it. Prints one line; returns 0 only when the branch is gone.
+# refs/harness has no reflog, so an existing archive is never moved: the empty old value makes update-ref create-only.
+backup_retire() {
+  local co="$1" b="$2" merged="$3" tip aref have
+  tip="$(git -C "$co" rev-parse "refs/heads/$b")" || { echo "backup $b kept (unreadable)"; return 1; }
+  if [ -n "$merged" ]; then
+    if git -C "$co" branch -D "$b" >/dev/null 2>&1; then echo "backup $b deleted"; return 0; fi
+    echo "backup $b kept (delete failed)"; return 1
+  fi
+  aref="refs/harness/backups/${b#backup/}"
+  have="$(git -C "$co" rev-parse -q --verify "$aref" 2>/dev/null || true)"
+  if [ -n "$have" ] && [ "$have" != "$tip" ]; then echo "backup $b kept (archive name $aref is taken)"; return 1; fi
+  if [ -z "$have" ] && ! git -C "$co" update-ref "$aref" "$tip" ""; then echo "backup $b kept (archive failed)"; return 1; fi
+  if git -C "$co" branch -D "$b" >/dev/null 2>&1; then echo "backup $b archived to $aref"; return 0; fi
+  echo "backup $b archived to $aref; branch kept (delete failed)"; return 1
+}
+
 base_branch() {
   local b
   b="$(cfg_get '.base // empty')"

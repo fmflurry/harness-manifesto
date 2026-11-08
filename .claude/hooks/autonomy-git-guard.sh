@@ -192,8 +192,9 @@ deny_harness_env() { emit deny "Blocked by git-guard: run agent-harness as one p
 deny_harness_cmd() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree take exactly their documented arguments as one plain command."; }
 deny_harness_chain() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree must run alone, not after a cd prefix or in a && ; | chain. They act on the session's working directory: run ship-init from a session whose working directory is the target repo."; }
 deny_cleanup_shape() { emit deny "Blocked by git-guard: cleanup takes exactly \`agent-harness cleanup <pr> [--keep-branch]\`: a PR number, then optionally --keep-branch, and no other flag (no --confirmed, no --help)."; }
+deny_prune_shape() { emit deny "Blocked by git-guard: prune-backups takes exactly \`agent-harness prune-backups [--confirmed]\`: no other argument."; }
 deny_alias() { emit deny "Blocked by git-guard: git aliases can smuggle worktree removal; do not define or pass alias.* settings."; }
-deny_branch_delete() { emit deny "Blocked by git-guard: branch deletion only via agent-harness cleanup <pr> after merge."; }
+deny_branch_delete() { emit deny "Blocked by git-guard: branch deletion only via agent-harness cleanup <pr> after merge, or agent-harness prune-backups for leftover backup/* branches."; }
 deny_config() { emit deny "Blocked by git-guard: git config injection (-c, --config-env, GIT_CONFIG_*) is not allowed."; }
 deny_unparsed() { emit deny "Blocked by git-guard: cannot parse this command safely (substitution, expansion, or ANSI-C quoting)."; }
 deny_review() { emit deny "Blocked by git-guard: $1"; }
@@ -1003,6 +1004,25 @@ check_cleanup() {
   [[ "${rest[0]:-}" =~ ^[0-9]+$ ]] || deny_cleanup_shape
   [ "${#rest[@]}" -le 2 ] || deny_cleanup_shape
   [ "${#rest[@]}" -lt 2 ] || [ "${rest[1]}" = --keep-branch ] || deny_cleanup_shape
+  return 0
+}
+
+# check_prune_backups <has_assign> <c0> args...: the harness's own way to retire leftover backup/* branches.
+check_prune_backups() {
+  local has_assign="$1" c0="$2"; shift 2
+  local rest=()
+  case "$c0" in
+    bash | sh | zsh | dash)
+      [[ "${1:-}" =~ prune-backups\.sh$ ]] || return 1
+      [[ "$1" == */scripts/agent-harness/prune-backups.sh ]] || deny
+      shift; rest=("$@") ;;
+    agent-harness | agent-harness.sh) [ "${1:-}" = prune-backups ] || return 1; shift; rest=("$@") ;;
+    prune-backups.sh) [[ "$RAW0" == */scripts/agent-harness/prune-backups.sh ]] || deny; rest=("$@") ;;
+    *) return 1 ;;
+  esac
+  [ "$has_assign" = 0 ] || deny_harness_env
+  [ "${#rest[@]}" -le 1 ] || deny_prune_shape
+  [ "${#rest[@]}" -eq 0 ] || [ "${rest[0]}" = --confirmed ] || deny_prune_shape
   return 0
 }
 
@@ -2207,6 +2227,7 @@ while [ "$LI" -lt "$nlines" ]; do
 
   if [ "$HC" = 1 ] && check_ship_merge "$has_assign" "$c0" "${ct[@]:1}"; then continue; fi
   if [ "$HC" = 1 ] && check_cleanup "$has_assign" "$c0" "${ct[@]:1}"; then continue; fi
+  if [ "$HC" = 1 ] && check_prune_backups "$has_assign" "$c0" "${ct[@]:1}"; then continue; fi
 
   case "$c0" in
     git)
