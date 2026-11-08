@@ -243,6 +243,30 @@ goal_bind_registered_pr() {
   goal_bind_file "$STATE_DIR"
 }
 
+# Keep .claude/state/ out of git in the main checkout. A repo that already ignores it keeps its own rule.
+exclude_state_dir() {
+  [ "$STATE_DIR" = "$DEFAULT_STATE_DIR" ] || return 0
+  git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  git -C "$ROOT" check-ignore -q .claude/state/autonomy.on && git -C "$ROOT" check-ignore -q .claude/state/decisions/x.tsv && return 0
+  local file
+  file="$(git -C "$ROOT" rev-parse --path-format=absolute --git-path info/exclude)"
+  grep -Fxq '.claude/state/' "$file" 2>/dev/null && return 0
+  mkdir -p "$(dirname "$file")"
+  [ ! -s "$file" ] || [ -z "$(tail -c 1 "$file")" ] || echo >>"$file"
+  echo '.claude/state/' >>"$file"
+}
+
+# decisions_archive <slug>: move a finished goal's decision log to decisions/archive/, never over an older archive.
+decisions_archive() {
+  local src dest
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 0
+  src="$STATE_DIR/decisions/$1.tsv"
+  [ -f "$src" ] || return 0
+  dest="$STATE_DIR/decisions/archive/$1.tsv"
+  [ ! -e "$dest" ] || dest="$STATE_DIR/decisions/archive/$1.$(date -u +%Y%m%dT%H%M%SZ).tsv"
+  mkdir -p "$STATE_DIR/decisions/archive" && mv "$src" "$dest" && echo "decisions archived $dest"
+}
+
 # reg_proves_gone_goal <pr> <head-branch>: the caller has seen the PR MERGED. True only when exactly one registry entry
 # tracks the PR, it records that head branch under that branch's slug, and its absolute worktree path no longer exists.
 reg_proves_gone_goal() {

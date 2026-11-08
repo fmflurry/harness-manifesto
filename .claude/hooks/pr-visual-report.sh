@@ -5,6 +5,8 @@
 # A docs typo or a version bump only may pass with a checked Skip line and a reason.
 set -f
 VISUAL_ALLOW_RELATIVE=0
+# shellcheck source=goal-state.sh
+. "${BASH_SOURCE[0]%/*}/goal-state.sh" 2>/dev/null || true
 
 say() { REASON="$1"; printf '%s\n' "$1" >&2; }
 
@@ -86,7 +88,8 @@ provenance_merge_ok() {
   done
   [ -n "$method" ] || { say "pr-provenance: choose --rebase or --merge, or use agent-harness ship-merge for squash"; return 1; }
   [ "$next" = 0 ] && [[ "$expected" =~ ^[a-f0-9]{40,64}$ ]] || { say "pr-provenance: merge requires --match-head-commit with the current PR head SHA"; return 1; }
-  output="$(cd "$HOOK_CWD" && HARNESS_GH_COMMAND="$PROVENANCE_GH" node "$helper" merge "$ref" "$expected" 2>&1)" && return 0
+  [ "${CMD_DIR:-}" != "?" ] || { say "pr-provenance: cannot tell which checkout this merge runs in"; return 1; }
+  output="$(cd "${CMD_DIR:-$HOOK_CWD}" && HARNESS_GH_COMMAND="$PROVENANCE_GH" node "$helper" merge "$ref" "$expected" 2>&1)" && return 0
   say "$output"
   return 1
 }
@@ -234,9 +237,10 @@ is_sep() {
 
 # Last matching flag wins. mode is required or optional.
 take_body_flags() {
-  local mode="$1" i=0 a
+  local mode="$1" i=0 a check_dir
   shift
   PR_PROVENANCE_BASE=""
+  PR_HEAD=""
   KIND=""
   PAYLOAD=""
   while [ "$i" -lt "$#" ]; do
@@ -245,6 +249,9 @@ take_body_flags() {
       --base|-B)
         i=$((i + 1)); PR_PROVENANCE_BASE="${*:$((i + 1)):1}" ;;
       --base=*) PR_PROVENANCE_BASE="${a#*=}" ;;
+      --head|-H)
+        i=$((i + 1)); PR_HEAD="${*:$((i + 1)):1}" ;;
+      --head=*) PR_HEAD="${a#*=}" ;;
       --body-file|-F|--description-file)
         i=$((i + 1))
         a="${*:$((i + 1)):1}"
@@ -275,14 +282,18 @@ take_body_flags() {
     say "pr-visual-report: pass the PR body with --body-file or a single quoted --body (or --description)"
     return 1
   fi
+  # The body file is read where the command runs; the checks read the PR head's registered worktree when --head names one.
+  [ "$CMD_DIR" != "?" ] || { say "pr-visual-report: cannot tell which checkout this PR command runs in; run it from the checkout, or prefix exactly one cd <absolute path> && (no CDPATH, pushd, popd, cd -, ~, || or bare relative path)"; return 1; }
+  check_dir="$CMD_DIR"
+  if [ -n "$PR_HEAD" ]; then check_dir="$(goal_branch_worktree "$CMD_DIR" "${PR_HEAD#*:}" 2>/dev/null)" || check_dir="$CMD_DIR"; fi
   if [ "$KIND" = file ]; then
-    read_body_file "$PAYLOAD" "$HOOK_CWD" || return 1
+    read_body_file "$PAYLOAD" "$CMD_DIR" || return 1
   else
     BODY="$PAYLOAD"
   fi
   visual_ok "$BODY" || return 1
-  memory_ok "$BODY" "$HOOK_CWD" || return 1
-  provenance_ok "$BODY" "$HOOK_CWD" || return 1
+  memory_ok "$BODY" "$check_dir" || return 1
+  provenance_ok "$BODY" "$check_dir" || return 1
   metrics_warn "$BODY"
 }
 
@@ -313,8 +324,39 @@ args_until_sep() {
   done
 }
 
+# Sets CMD_DIR, the checkout the PR command runs in. Allow-list: the session cwd, or exactly one leading
+# `[VAR=...] cd <dir> && gh ...`. Any other cd, or a word that can change directory out of sight
+# (eval, exec, source, builtin, pushd, popd; a \cd already fails tokenize), makes it unknown ("?").
+resolve_cmd_dir() {
+  local i=0 j=0 n=${#TOKENS[@]} t cds=0 d
+  CMD_DIR="$HOOK_CWD"
+  for ((i = 0; i < n; i++)); do
+    t="${TOKENS[$i]}"
+    case "${t##*/}" in
+      cd) cds=$((cds + 1)) ;;
+      eval | exec | source | builtin | pushd | popd) CMD_DIR="?"; return 0 ;;
+      .) if [ "$i" -eq 0 ] || is_sep "${TOKENS[$((i - 1))]}"; then CMD_DIR="?"; return 0; fi ;;
+    esac
+  done
+  [ "$cds" -gt 0 ] || return 0
+  while [ "$j" -lt "$n" ] && [[ "${TOKENS[$j]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do
+    [[ "${TOKENS[$j]}" != CDPATH=* ]] || { CMD_DIR="?"; return 0; }
+    j=$((j + 1))
+  done
+  d="${TOKENS[$((j + 1))]:-}" t="${TOKENS[$((j + 3))]:-}"
+  CMD_DIR="?"
+  [ "$cds" -eq 1 ] && [ "${TOKENS[$j]}" = cd ] && [ "${TOKENS[$((j + 2))]:-}" = "&&" ] || return 0
+  [ "${t##*/}" = gh ] || [[ "${t##*/}" == gh-* ]] || return 0
+  # bash resolves any other relative target through CDPATH (possibly exported), which the hook cannot see.
+  case "$d" in *'$'*) return 0 ;; /*) ;; ./* | ../* | . | ..) d="$HOOK_CWD/$d" ;; *) return 0 ;; esac
+  d="$(cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && CMD_DIR="$d"
+  return 0
+}
+
 inspect() {
   local i=0 n=${#TOKENS[@]} cmdpos=1 t base
+  REACHED=0
+  resolve_cmd_dir
   while [ "$i" -lt "$n" ]; do
     t="${TOKENS[$i]}"
     if is_sep "$t"; then cmdpos=1; i=$((i + 1)); continue; fi
@@ -329,6 +371,7 @@ inspect() {
         PROVENANCE_GH="$t"
         skip_flags $((i + 1))
         if [ "${TOKENS[$SKIP_AT]:-}" = "pr" ]; then
+          case "${TOKENS[$((SKIP_AT + 1))]:-}" in create | new | edit) REACHED=$((REACHED + 1)) ;; esac
           case "${TOKENS[$((SKIP_AT + 1))]:-}" in
             create|new)
               args_until_sep $((SKIP_AT + 2))
@@ -420,13 +463,24 @@ cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null |
 HOOK_CWD="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null || true)"
 [ -n "$HOOK_CWD" ] || HOOK_CWD="${PWD}"
 
+count_prs() { grep -oE '(^|[^[:alnum:]_.-])gh(-[[:alnum:]_-]+)?[[:space:]]+pr[[:space:]]+(create|new|edit)([^[:alnum:]_]|$)' | wc -l | tr -d ' '; }
+# Unquoted mentions always count; quoted ones count when a word in the line can run a string as a command.
+RAW_PRS="$(printf '%s\n' "$cmd" | sed -e "s/'[^']*'//g" -e 's/"[^"]*"//g' | count_prs)"
+if printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|fish|eval|exec|xargs|env|sudo|su|nohup|timeout|ssh|script|watch|parallel)([^[:alnum:]_.-]|$)'; then
+  RAW_PRS="$(printf '%s\n' "$cmd" | count_prs)"
+fi
 if ! tokenize "$cmd"; then
-  if looks_like_pr "$cmd"; then
+  if looks_like_pr "$cmd" || [ "${RAW_PRS:-0}" -gt 0 ]; then
     emit_deny "pr-visual-report: cannot read the PR body (substitution or expansion). Pass --body-file or a single quoted --body."
   fi
   exit 0
 fi
 if ! inspect; then
   emit_deny "${REASON:-pr-visual-report: PR body failed the Visual report check}"
+fi
+# A gh pr create/new/edit the parser did not reach in command position (sh -c, env -C, xargs, if/then, a brace
+# group, a newline-separated script) escapes the checks above: fail closed.
+if [ "${RAW_PRS:-0}" -gt "${REACHED:-0}" ]; then
+  emit_deny "pr-visual-report: run gh pr create/edit directly (optionally after one cd <dir> &&), not through sh -c, env, xargs, exec, if/then, a brace group or a multi-line script."
 fi
 exit 0

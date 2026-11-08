@@ -55,6 +55,31 @@ goal_state_id() {
   printf '%s\n%s\n%s\n' "$GS_REPO" "$GS_WT" "$GS_BRANCH" | git -C "$GS_WT" hash-object --stdin 2>/dev/null
 }
 
+# goal_decisions_path <state-dir>: the bound goal's decision log, or the shared log when no goal is bound.
+goal_decisions_path() {
+  local slug=""
+  [ ! -f "${GOAL_FILE:-}" ] || slug="$(jq -r '.slug // empty' "$GOAL_FILE" 2>/dev/null || true)"
+  if [[ "$slug" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    printf '%s/decisions/%s.tsv\n' "$1" "$slug"
+  else
+    printf '%s/decisions.tsv\n' "$1"
+  fi
+}
+
+# goal_branch_worktree <dir> <branch>: print the registered goal worktree of <branch> in the repository of <dir>,
+# only while that worktree still has <branch> checked out.
+goal_branch_worktree() {
+  local common reg path
+  [ -n "$2" ] || return 1
+  common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  reg="$common/agent-harness/goals/${2//\//-}.json"
+  [ -f "$reg" ] || return 1
+  path="$(jq -r '.path // empty' "$reg" 2>/dev/null)" || return 1
+  [ -n "$path" ] && [ -d "$path" ] || return 1
+  [ "$(git -C "$path" symbolic-ref --quiet --short HEAD 2>/dev/null)" = "$2" ] || return 1
+  printf '%s\n' "$path"
+}
+
 goal_bind_file() {
   local dir="$1" id legacy dest branch
   if [ "${GS_KIND:-none}" = none ]; then

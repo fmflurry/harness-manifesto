@@ -9,8 +9,12 @@ NOTIFY="${AGENT_HARNESS_DIR:-$HOME/.claude/scripts/agent-harness}/notify.sh"
 if [ -f "$STATE_DIR/autonomy.on" ]; then
   _kpi="${BASH_SOURCE[0]%/*}/kpi-emit.sh"
   [ -f "$_kpi" ] && "$_kpi" guard_block guard=ask >/dev/null 2>&1 || true
-  jq -n '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",
-    permissionDecisionReason:"Autonomous mode: decide yourself, log the assumption to .claude/state/decisions.tsv, continue."}}'
+  # shellcheck source=goal-state.sh
+  . "${BASH_SOURCE[0]%/*}/goal-state.sh"
+  goal_scope_select "${CLAUDE_PROJECT_DIR:-$PWD}" "$PWD"
+  goal_bind_file "$STATE_DIR"
+  jq -n --arg log "$(goal_decisions_path "$STATE_DIR")" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",
+    permissionDecisionReason:("Autonomous mode: decide yourself, log the assumption to " + $log + ", continue.")}}'
   exit 0
 fi
 [ -n "${ORCA_WORKTREE_ID:-}" ] || exit 0

@@ -46,6 +46,8 @@ A run is one agent conversation, including its later turns and any summary of it
 
 By default the log is a working artifact, not committed. Keep it at `decisions.tsv` in the work dir, or `.audit/<task-slug>.tsv` when several efforts run at once, and leave it out of git.
 
+Under the agent harness, `agent-harness goal decisions-path` prints the log for the current checkout: `.claude/state/decisions/<goal-slug>.tsv` in the main checkout while a goal is bound, `.claude/state/decisions.tsv` otherwise. `ship-init` creates it with the header row, and the post-merge teardown moves it to `.claude/state/decisions/archive/`. It is untracked by default (`.claude/state/` goes in `.git/info/exclude`); a repo that wants to commit it must `git add -f` it.
+
 Commit it only when the work is ambitious enough that a reviewer needs the trail to trust the result.
 
 ## Rules

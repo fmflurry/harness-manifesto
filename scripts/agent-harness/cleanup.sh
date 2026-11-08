@@ -1,6 +1,7 @@
 #!/bin/bash -p
 # shellcheck disable=SC2016
-# cleanup.sh <pr> [--keep-branch] [--no-checkout]: post-merge tidy of the remote head branch, local checkout, local head and goal backup branches. Never removes worktrees.
+# cleanup.sh <pr> [--keep-branch] [--no-checkout]: post-merge tidy of the remote head branch, local checkout, local head and goal backup branches,
+# and archive of a registered goal's decision log. Never removes worktrees.
 # --no-checkout leaves the checkout alone (no fetch, switch or pull) and deletes the local branch whenever it is checked out nowhere.
 set -euo pipefail
 # shellcheck source=scripts/agent-harness/lib.sh
@@ -120,6 +121,13 @@ if [ "$(goal_get '.pr // empty')" = "$pr" ]; then
     goal_update --argjson d "$(printf '%s\n' "${deleted[@]}" | jq -R . | jq -sc .)" \
       '.backup_branches = ((.backup_branches // []) - $d)'
   fi
+fi
+
+if slug="$(reg_find_by_pr "$pr" 2>/dev/null)"; then
+  case "$(reg_get "$slug" '.status // empty' || true)" in
+    escalated | blocked) ;;
+    *) msg="$(decisions_archive "$slug")" || msg="decisions archive failed for $slug"; [ -z "$msg" ] || say "$msg" ;;
+  esac
 fi
 
 gd="$(cd "$CO" && cd "$(g rev-parse --git-dir)" && pwd -P)"

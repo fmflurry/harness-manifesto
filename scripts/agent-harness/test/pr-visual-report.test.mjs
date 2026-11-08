@@ -49,11 +49,16 @@ const skipped = [
   '',
 ].join('\n');
 
+// Without a cwd the scripts run in an empty repository with no origin, so the provenance check never reads this
+// checkout's own (possibly trailered) commits.
+const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-visual-report-'));
+spawnSync('git', ['init', '-q'], { cwd: fixture });
+
 function bash(file, args, { input, cwd, env } = {}) {
   return spawnSync('bash', [file, ...args], {
     encoding: 'utf8',
     input,
-    cwd,
+    cwd: cwd ?? fixture,
     env: env ?? process.env,
   });
 }

@@ -86,10 +86,11 @@ Check the mode with `agent-harness autonomy status`. The rules behind both modes
 ## Stages
 
 0. **Init.** The first action of the run. `agent-harness ship-init <type> <scope> <desc> --goal "$ARGUMENTS"`, or
-   `--adopt <pr>` to resume. It creates the goal worktree and registers it. Details in
+   `--adopt <pr>` to resume. It creates the goal worktree, registers it, and creates the goal's decision log. Details in
    [lifecycle.md](references/lifecycle.md#0-init).
 1. **Clarify.** Ask one dependency-safe AskUserQuestion round, with a recommended option per question.
-   In autonomous mode skip it and log each assumption with `show-your-work`.
+   In autonomous mode skip it and log each assumption with `show-your-work` to the file
+   `agent-harness goal decisions-path` prints (one log per goal; teardown archives it).
 2. **Set the goal.** `agent-harness goal set "$ARGUMENTS" <criteria...>`. Criteria: PR merged to the base branch,
    every `requiredChecks` entry green, the `verify` commands green, the `reviewStatus` status successful on the head
    (when configured), zero open review threads.

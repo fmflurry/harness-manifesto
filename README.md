@@ -1035,6 +1035,7 @@ agent-harness autonomy on|off|status     # toggle .claude/state/autonomy.on (git
 agent-harness ship-merge <pr> [--method squash|rebase|merge]  # the only merge path; add --confirmed in interactive mode
 agent-harness notify done "<msg>" <pr>   # notify on question, waiting, done, failure only
 agent-harness ship-init <type> <scope> <desc> --goal "<text>"  # first action of /ship: goal worktree + registry (or --adopt <pr>)
+agent-harness goal decisions-path        # this checkout's decision log: .claude/state/decisions/<slug>.tsv per goal (created by ship-init, archived to decisions/archive/ by teardown), else .claude/state/decisions.tsv
 agent-harness teardown-merged-worktree <pr>  # after MERGED: remove the registered goal worktree, branches and registry (run by ship-merge)
 agent-harness cleanup <pr> [--keep-branch] [--no-checkout]  # after MERGED: delete the PR's head branch and goal backups (unregistered PRs; also run by ship-merge; teardown passes --no-checkout)
 ```
@@ -1474,6 +1475,7 @@ agent-harness autonomy on|off|status     # bascule .claude/state/autonomy.on (gi
 agent-harness ship-merge <pr> [--method squash|rebase|merge]  # seul chemin de fusion; ajouter --confirmed en mode interactif
 agent-harness notify done "<msg>" <pr>   # notifier uniquement sur question, waiting, done, failure
 agent-harness ship-init <type> <scope> <desc> --goal "<text>"  # première action de /ship : worktree du goal + registre (ou --adopt <pr>)
+agent-harness goal decisions-path        # journal de décisions de ce checkout : .claude/state/decisions/<slug>.tsv par goal (créé par ship-init, archivé dans decisions/archive/ par le teardown), sinon .claude/state/decisions.tsv
 agent-harness teardown-merged-worktree <pr>  # après MERGED : retire le worktree enregistré, les branches et le registre (lancé par ship-merge)
 agent-harness cleanup <pr> [--keep-branch]  # après MERGED : supprime la branche de la PR et les backups du goal (PR non enregistrées ; aussi lancé par ship-merge)
 ```

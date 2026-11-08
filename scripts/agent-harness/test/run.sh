@@ -2181,6 +2181,7 @@ arg() { local k="$1"; shift; while [ $# -gt 1 ]; do [ "$1" = "$k" ] && { echo "$
 case "${1:-} ${2:-}" in
   "repo list")
     [ ! -e "$FX/orca.list.fail" ] || exit 1
+    [ ! -e "$FX/orca.runtime" ] || { echo '{"id":"i","ok":false,"error":{"code":"runtime_unavailable","message":"Orca is not running"}}'; exit 1; }
     if [ -s "$FX/orca.managed" ]; then jq -n --arg p "$(cat "$FX/orca.managed")" '{id:"i",ok:true,result:{repos:[{id:"r",path:$p,displayName:"r"}]}}'
     else echo '{"id":"i","ok":true,"result":{"repos":[]}}'; fi ;;
   "worktree list")
@@ -2265,6 +2266,13 @@ check "two concurrent goals: second ship-init succeeds" test $rc -eq 0
 check "two concurrent goals: two registry files" test "$(find "$LM/.git/agent-harness/goals" -name '*.json' | wc -l | tr -d ' ')" = 2
 check "two concurrent goals: distinct worktrees" test -d "$LT" -a -d "$LT2"
 check "two concurrent goals: both active" test "$(lreg $LS .status)|$(lreg fix-ui-other-goal .status)" = "active|active"
+check "ship-init: decision log starts with the show-your-work header" test "$(cat "$LM/.claude/state/decisions/$LS.tsv")" = "$(printf 'ts\tphase\tdecision\twhy\tevidence\tresult')"
+check "goal decisions-path: the worktree names its goal's log" test "$(LCWD="$LT" LH goal decisions-path)" = "$LM/.claude/state/decisions/$LS.tsv"
+check "goal decisions-path: the second worktree names its own log" test "$(LCWD="$LT2" LH goal decisions-path)" = "$LM/.claude/state/decisions/fix-ui-other-goal.tsv"
+check "goal decisions-path: the main checkout without a goal names the shared log" test "$(LH goal decisions-path)" = "$LM/.claude/state/decisions.tsv"
+printf 'a\n' >>"$LM/.claude/state/decisions/$LS.tsv"
+check "two concurrent goals: a row in one log leaves the other alone" test "$(wc -l <"$LM/.claude/state/decisions/fix-ui-other-goal.tsv" | tr -d ' ')" = 1
+check "two concurrent goals: decision logs leave main clean" test -z "$(git -C "$LM" status --porcelain)"
 LH ship-init feat ui hud-theme >"$FX/out" 2>"$FX/err"; rc=$?
 check "ship-init refuses a slug that is already active" test $rc -eq 1
 check "ship-init refusal names the active goal" grep -q 'already active' "$FX/err"
@@ -2381,10 +2389,18 @@ lw_td git; lw_set_reg 'del(.path)'; lw_td_refuses "an entry without a path"
 lw_td git; rm "$FX/view.json"; lw_td_refuses "an unreadable PR"
 lw_td git; LCWD="$T" LH goal escalate "stuck" >/dev/null 2>&1; view_mut '.state="OPEN"'; lw_td_refuses "an escalated goal"
 check "teardown escalated goal: names the reason" grep -q 'escalated' "$FX/out"
+check "teardown escalated goal: decision log kept in place" test -f "$LM/.claude/state/decisions/feat-td-x.tsv" -a ! -e "$LM/.claude/state/decisions/archive"
 lw_td orca; echo $(( $(date +%s) * 1000 )) >"$FX/orca.activity"; lw_td_refuses "recent orca activity"
 lw_td orca; : >"$FX/orca.noactivity"; lw_td_refuses "unreadable orca activity"
 lw_td orca; : >"$FX/orca.list.fail"; lw_td_refuses "an unreadable orca repo list for a goal created via orca"
 check "teardown via orca, orca repo list unreadable: names the reason" grep -qF 'orca is installed but its repo list is unreadable' "$FX/out"
+lw_td orca; : >"$FX/orca.runtime"; lw_td_refuses "orca runtime_unavailable for a goal created via orca"
+lw_td git; : >"$FX/orca.runtime"; lw_td_run 5; rc=$?
+check "teardown via git, orca runtime_unavailable: exits 0" test $rc -eq 0
+check "teardown via git, orca runtime_unavailable: no STOP" bash -c '! grep -q "teardown: STOP" "$1"' _ "$FX/out"
+check "teardown via git, orca runtime_unavailable: directory gone" test ! -e "$T"
+check "teardown via git, orca runtime_unavailable: registry removed" test ! -e "$(lreg_file feat-td-x)"
+rm -f "$FX/orca.runtime"
 lw_td git; printf '%s' "$LM" >"$FX/orca.managed"; : >"$FX/orca.list.fail"; rm -f "$FX/orca.log"; lw_td_run 5; rc=$?
 check "teardown via git, orca repo list unreadable: exits 0" test $rc -eq 0
 check "teardown via git, orca repo list unreadable: directory gone" test ! -e "$T"
@@ -2408,6 +2424,8 @@ for mode in git orca; do
   check "teardown $mode: local branch deleted" bash -c '! git -C "$1" show-ref -q --verify refs/heads/feat/td-x' _ "$LM"
   check "teardown $mode: remote branch deleted" grep -q 'DELETE repos/o/r/git/refs/heads/feat/td-x' "$FX/gh.log"
   check "teardown $mode: registry removed" test ! -e "$(lreg_file feat-td-x)"
+  check "teardown $mode: decision log archived" test -f "$LM/.claude/state/decisions/archive/feat-td-x.tsv" -a ! -e "$LM/.claude/state/decisions/feat-td-x.tsv"
+  check "teardown $mode: archive is reported" grep -qxF "cleanup: decisions archived $LM/.claude/state/decisions/archive/feat-td-x.tsv" "$FX/out"
   check "teardown $mode: summary line" grep -qxF "teardown: worktree removed $TN; remote feat/td-x deleted; local feat/td-x deleted; registry removed" "$FX/out"
   check "teardown $mode: main checkout unchanged" test "$(git -C "$LM" status --porcelain)" = ""
   check "teardown $mode: main checkout back on master" test "$(git -C "$LM" branch --show-current)" = master
@@ -2764,9 +2782,84 @@ out="$(cd "$LT" && env -u CLAUDE_PROJECT_DIR -u AGENT_STATE_DIR -u AGENT_HARNESS
 check "autonomy-context hook run from the worktree sees the main flag and goal" bash -c 'grep -q "AUTONOMOUS MODE ON" <<<"$1" && grep -q "status=escalated" <<<"$1"' _ "$out"
 out="$(cd "$LT" && echo '{"tool_input":{"questions":[{"question":"q"}]}}' | env -u CLAUDE_PROJECT_DIR -u AGENT_STATE_DIR -u AGENT_HARNESS_TEST bash "$HOOKS/autonomy-ask-guard.sh")"
 check "ask-guard run from the worktree denies via the main flag" grep -q '"permissionDecision": *"deny"' <<<"$out"
+check "ask-guard run from the worktree names the goal's decision log" grep -qF "log the assumption to $LM/.claude/state/decisions/$LS.tsv," <<<"$out"
+out="$(cd "$LT" && env -u CLAUDE_PROJECT_DIR -u AGENT_STATE_DIR -u AGENT_HARNESS_TEST bash "$HOOKS/autonomy-context.sh" </dev/null)"
+check "autonomy-context run from the worktree names the goal's decision log" grep -qF "log every assumption to $LM/.claude/state/decisions/$LS.tsv (" <<<"$out"
+check "autonomy-context keeps the backticks literal" grep -qF '`agent-harness ship-merge <pr>`' <<<"$out"
 out="$(cd "$LT" && jqn -n --arg c "gh pr merge 1" '{cwd:"'"$LT"'",tool_input:{command:$c}}' | env -u CLAUDE_PROJECT_DIR -u AGENT_STATE_DIR -u AGENT_HARNESS_TEST bash "$HOOKS/autonomy-git-guard.sh")"
 check "git-guard run from the worktree uses the main flag" grep -q '"permissionDecision": *"deny"' <<<"$out"
 rm -f "$LM/.claude/state/autonomy.on"
+
+# PR and push guards read the checkout the command runs in (cd, git -C, gh --head), not the session's
+lw_guard() { ( cd "$2" && jqn -n --arg c "$3" --arg d "$2" '{cwd:$d,tool_input:{command:$c}}' | env -u CLAUDE_PROJECT_DIR -u AGENT_STATE_DIR -u AGENT_HARNESS_TEST bash "$HOOKS/$1" 2>/dev/null ); }
+lw_denied() { grep -q '"permissionDecision": *"deny"' <<<"$1"; }
+lw_fixture git
+LH ship-init feat ui cd-guard >"$FX/out" 2>/dev/null; LT="$(cat "$FX/out")"; LS=feat-ui-cd-guard
+( cd "$LT" && echo c >c && git add c && git commit -qm "$(printf 'C\n\nHarness: fmflurry-harness@1.0.0\nHarness-SHA: abc123\nSession-Id: s1')" ) >/dev/null 2>&1
+printf '## Visual report\n\n- [x] Skip Reason: docs typo only in this fixture\n' >"$LT/bare.md"
+cp "$LT/bare.md" "$LT/body.md"; ( cd "$LT" && node "$H/pr-provenance.mjs" list origin/master HEAD ) >>"$LT/body.md"
+out="$(lw_guard pr-visual-report.sh "$LM" "cd $LT && gh pr create --base master --body-file bare.md")"
+check "pr-visual-report: after cd, the worktree's commits need provenance" grep -q 'missing commit provenance' <<<"$out"
+out="$(lw_guard pr-visual-report.sh "$LM" "cd $LT && gh pr create --base master --body-file body.md")"
+check "pr-visual-report: after cd, the worktree's provenance and relative body file pass" test -z "$out"
+out="$(lw_guard pr-visual-report.sh "$LM" "gh pr create --base master --head feat/ui-cd-guard --body-file $LT/bare.md")"
+check "pr-visual-report: --head reads its registered goal worktree" grep -q 'missing commit provenance' <<<"$out"
+out="$(lw_guard pr-visual-report.sh "$LM" "gh pr create --base master --head feat/ui-cd-guard --body-file $LT/body.md")"
+check "pr-visual-report: --head with the worktree's provenance passes" test -z "$out"
+out="$(lw_guard pr-visual-report.sh "$LM" "gh pr create --base master --body-file $LT/bare.md")"
+check "pr-visual-report: without cd or --head the session checkout is read" test -z "$out"
+touch "$LM/.claude/state/autonomy.on"
+check "push guard: cd into an unreviewed goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LM" "cd $LT && git push -u origin feat/ui-cd-guard")"
+check "push guard: git -C an unreviewed goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LM" "git -C $LT push -u origin feat/ui-cd-guard")"
+check "gh pr create guard: --head of an unreviewed goal denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LM" "gh pr create --head feat/ui-cd-guard --fill")"
+# Fail closed: a target checkout without a gated goal keeps the session's goal.
+check "push guard: from a goal worktree, git -C main still gates the push" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "git -C $LM push origin feat/ui-cd-guard")"
+check "push guard: from a goal worktree, cd main still gates the push" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "cd $LM && git push origin feat/ui-cd-guard")"
+check "gh pr create guard: from a goal worktree, cd main with an unregistered --head denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "cd $LM && gh pr create --head feat/unregistered --fill")"
+LH ship-init fix ui esc-goal >"$FX/out" 2>/dev/null; LT2="$(cat "$FX/out")"
+LCWD="$LT2" LH goal escalate "stuck" >/dev/null 2>&1
+check "push guard: git -C a worktree whose goal is escalated still gates the push" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "git -C $LT2 push origin feat/ui-cd-guard")"
+git -C "$LM" worktree add -q -f "$LROOT/stray" feat/ui-cd-guard >/dev/null 2>&1
+check "push guard: a goal-less extra checkout of the branch still gates the push" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "cd $LROOT/stray && git push origin feat/ui-cd-guard")"
+git -C "$LM" worktree remove --force "$LROOT/stray" >/dev/null 2>&1
+check "git guard: writing the goal registry from the shell denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "echo {} > $LM/.git/agent-harness/goals/feat-x.json")"
+LCWD="$LT" LH goal review code pass >/dev/null 2>&1
+LCWD="$LT" LH goal review security pass >/dev/null 2>&1
+check "push guard: cd finds the reviews recorded in the worktree" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "cd $LT && git push -u origin feat/ui-cd-guard")"
+check "push guard: git -C finds the reviews recorded in the worktree" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "git -C $LT push -u origin feat/ui-cd-guard")"
+check "gh pr create guard: cd finds the worktree's reviews" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "cd $LT && gh pr create --fill")"
+check "gh pr create guard: --head maps to the registered worktree's reviews" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "gh pr create --head feat/ui-cd-guard --fill")"
+check "gh pr create guard: --head of an unregistered branch still denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "gh pr create --head feat/other --fill")"
+check "gh pr create guard: reviewed worktree allows a plain create" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LT" "gh pr create --fill")"
+check "gh pr create guard: --head owner:branch with a foreign owner denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "gh pr create --head evil:feat/ui-cd-guard --fill")"
+check "gh pr create guard: --repo other than origin denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "gh pr create --repo evil/repo --fill")"
+rm -f "$LM/.claude/state/autonomy.on"
+for c in "cd $LT && cd - && gh pr create" "cd $LM && pushd $LT && gh pr create" "cd $LM && cd -P $LT && gh pr create" "false || cd $LT && gh pr create" "cd ~ && gh pr create" "cd $LROOT/missing && gh pr create"; do
+  out="$(lw_guard pr-visual-report.sh "$LM" "$c --base master --body-file $LT/bare.md")"
+  check "pr-visual-report fails closed on an untracked cd: $c" grep -q 'cannot tell which checkout' <<<"$out"
+done
+B="--base master --body-file $LT/body.md"
+for c in "cd $LM && { cd -; gh pr create $B; }" "cd $LM && { cd $LT; gh pr create $B; }" "cd $LM && eval cd - && gh pr create $B" \
+  "cd $LM && \\cd $LT && gh pr create $B" "cd $LM && ! cd - ; gh pr create $B" \
+  "sh -c 'gh pr create $B'" "bash -lc 'gh pr create $B'" "env -C $LT gh pr create $B" "echo x | xargs gh pr create $B" \
+  "$(printf 'true\ngh pr create %s' "$B")" "if true; then gh pr create $B; fi" "exec gh pr create $B"; do
+  check "pr-visual-report denies a cd or wrapper it cannot follow: $c" lw_denied "$(lw_guard pr-visual-report.sh "$LM" "$c")"
+done
+mkdir -p "$LROOT/cdp"; ln -sfn "$LT" "$LROOT/cdp/xx"; ln -sfn "$LM" "$LM/xx"
+check "pr-visual-report denies a cd resolved through CDPATH" lw_denied "$(lw_guard pr-visual-report.sh "$LM" "CDPATH=$LROOT/cdp cd xx && gh pr create --base master --body-file $LT/bare.md")"
+check "pr-visual-report denies a bare relative cd (CDPATH may apply)" lw_denied "$(lw_guard pr-visual-report.sh "$LM" "cd xx && gh pr create --base master --body-file $LT/body.md")"
+rm -f "$LM/xx"
+check "pr-visual-report allows cd ../<wt> with the worktree's provenance" test -z "$(lw_guard pr-visual-report.sh "$LM" "cd ../main-wt/feat-ui-cd-guard && gh pr create --base master --body-file body.md")"
+check "pr-visual-report allows the documented cd <wt> && gh pr create --head form" test -z "$(lw_guard pr-visual-report.sh "$LM" "cd $LT && gh pr create --base master --head feat/ui-cd-guard --body-file body.md")"
+
+# ship-init archives a stale log under a reused slug; the exclude append keeps the last line intact
+lw_fixture git
+mkdir -p "$LM/.claude/state/decisions"; printf 'old row\n' >"$LM/.claude/state/decisions/feat-ui-stale.tsv"
+printf 'foo' >"$LM/.git/info/exclude"
+LH ship-init feat ui stale >/dev/null 2>&1
+check "ship-init: a stale log under the slug is archived" test "$(cat "$LM/.claude/state/decisions/archive/feat-ui-stale.tsv")" = "old row"
+check "ship-init: the new log starts with only the header" test "$(wc -l <"$LM/.claude/state/decisions/feat-ui-stale.tsv" | tr -d ' ')" = 1
+check "ship-init: exclude append keeps a last line without newline" test "$(cat "$LM/.git/info/exclude")" = "$(printf 'foo\n.claude/state/')"
 
 lw_td git
 check "ship-merge-style teardown from main: goal pr recorded on the feature goal" test "$(lreg feat-td-x .pr)" = 5

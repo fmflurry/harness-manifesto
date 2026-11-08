@@ -24,7 +24,7 @@ Before implementing a change, and before opening a new PR, check the open PRs. T
    - **Wait or cancel.** The PR covers the goal, or it asks for sign-off before anything is applied (for example "do not merge" or "to validate"). Do not implement. Interactive: ask the user. Autonomous: escalate as a human-only blocker with `agent-harness goal escalate "<reason>"`.
    - **Unrelated.** The overlap is incidental. Proceed.
 4. **Record the decision.**
-   - One row per PR in `.claude/state/decisions.tsv` (see the `show-your-work` skill).
+   - One row per PR in the decision log `agent-harness goal decisions-path` prints (see the `show-your-work` skill).
    - A `## Related open PRs` list in the new PR body: number, decision, one-line reason. If the PR template has no such section, put the list under `## Locked decisions`.
 
 **Shared ownership.** A PR authored by another maintainer or co-owner that touches shared ownership, licensing or legal text always needs that person's sign-off before conflicting work is merged. This holds in autonomous mode too: it is a human-only blocker.
