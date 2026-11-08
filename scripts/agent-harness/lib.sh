@@ -355,18 +355,23 @@ BACKUP_RE='^backup/[a-z0-9]+(-[a-z0-9]+)*$'
 # backup_retire <checkout> <branch> <merged>: deletes a merged backup, or archives an unmerged one under
 # refs/harness/backups/ and then deletes it. Prints one line; returns 0 only when the branch is gone.
 # refs/harness has no reflog, so an existing archive is never moved: the empty old value makes update-ref create-only.
+# The branch is deleted against the tip it was read at, so a branch that moved meanwhile is kept, not lost; a branch
+# checked out in any worktree is kept too.
 backup_retire() {
-  local co="$1" b="$2" merged="$3" tip aref have
-  tip="$(git -C "$co" rev-parse "refs/heads/$b")" || { echo "backup $b kept (unreadable)"; return 1; }
+  local co="$1" b="$2" merged="$3" tip aref have inuse=""
+  tip="$(git -C "$co" rev-parse -q --verify "refs/heads/$b")" || { echo "backup $b kept (unreadable)"; return 1; }
+  if git -C "$co" worktree list --porcelain 2>/dev/null | grep -qxF "branch refs/heads/$b"; then inuse=1; fi
   if [ -n "$merged" ]; then
-    if git -C "$co" branch -D "$b" >/dev/null 2>&1; then echo "backup $b deleted"; return 0; fi
+    if [ -n "$inuse" ]; then echo "backup $b kept (checked out in a worktree)"; return 1; fi
+    if git -C "$co" update-ref -d "refs/heads/$b" "$tip" 2>/dev/null; then echo "backup $b deleted"; return 0; fi
     echo "backup $b kept (delete failed)"; return 1
   fi
   aref="refs/harness/backups/${b#backup/}"
   have="$(git -C "$co" rev-parse -q --verify "$aref" 2>/dev/null || true)"
   if [ -n "$have" ] && [ "$have" != "$tip" ]; then echo "backup $b kept (archive name $aref is taken)"; return 1; fi
   if [ -z "$have" ] && ! git -C "$co" update-ref "$aref" "$tip" ""; then echo "backup $b kept (archive failed)"; return 1; fi
-  if git -C "$co" branch -D "$b" >/dev/null 2>&1; then echo "backup $b archived to $aref"; return 0; fi
+  if [ -n "$inuse" ]; then echo "backup $b archived to $aref; branch kept (checked out in a worktree)"; return 1; fi
+  if git -C "$co" update-ref -d "refs/heads/$b" "$tip" 2>/dev/null; then echo "backup $b archived to $aref"; return 0; fi
   echo "backup $b archived to $aref; branch kept (delete failed)"; return 1
 }
 

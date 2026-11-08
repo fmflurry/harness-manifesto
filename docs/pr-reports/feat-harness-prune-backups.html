@@ -23,14 +23,14 @@ h1{font-size:26px;margin:0 0 6px}p.sub{margin:0 0 20px;color:#6b5f55}
 <div class="card"><h2>Files</h2><ul>
 <li><code>prune-backups.sh</code> (new), dispatcher and usage</li>
 <li><code>lib.sh</code>: <code>backup_retire</code>, now shared with <code>cleanup.sh</code></li>
-<li>git guard: allows exactly <code>prune-backups [--confirmed]</code></li>
+<li>git guard: allows exactly <code>agent-harness prune-backups [--confirmed]</code> or an installed copy of the script; a repo-local script or wrapper is denied</li>
 <li>Rules, skills, git-specialist prompts, READMEs EN and FR, for Claude Code, OpenCode and the Cursor plugin</li></ul></div>
 <div class="card"><h2>Tests</h2><ul class="ok">
-<li>Suite in a clean env: 2439 passed / 75 failed, against master 2405 / 75 with the same 75 failures</li>
-<li>New: the dry run changes nothing; merged deleted; unmerged archived; taken archive name keeps the branch; listed by a goal or the registry kept; non-matching name ignored; guard shape</li>
+<li>Suite in a clean env: 2469 passed / 75 failed, against master 2405 / 75 with the same 75 failures</li>
+<li>New: the dry run changes nothing; merged deleted; unmerged archived; taken archive name keeps the branch; listed by a goal or the registry kept; non-matching name ignored; no registry dir; corrupt list refuses; detached HEAD; no base refuses; checked out in a linked worktree; listed by another worktree's goal; guard shapes and launchers</li>
 <li>Parity ok; kpi and variant tests the same as master</li></ul></div>
 <div class="card"><h2>Risks</h2><ul class="risk">
 <li>Dry run by default: <code>--confirmed</code> is needed to act</li>
-<li>An archive is never moved; a taken name keeps the branch</li>
+<li>An archive is never moved; a taken name keeps the branch</li><li>Branches are deleted against the tip that was read (compare-and-swap)</li>
 <li>Only names matching <code>backup/[a-z0-9-]</code> are touched</li></ul></div>
 </div></body></html>

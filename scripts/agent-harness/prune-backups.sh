@@ -13,23 +13,33 @@ case "$#:${1:-}" in
   *) echo "$usage" >&2; exit 2 ;;
 esac
 
+refuse() { echo "prune-backups refused: $1" >&2; exit 1; }
 say() { echo "prune-backups: $*"; }
 CO="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 g() { git -C "$CO" "$@"; }
-g rev-parse --git-dir >/dev/null 2>&1 || { echo "prune-backups refused: not a git repository" >&2; exit 1; }
+g rev-parse --git-dir >/dev/null 2>&1 || refuse "not a git repository"
 
 base="$(base_branch 2>/dev/null)" || base="$(g symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)" || base=""
 base="${base#origin/}"
-[ -n "$base" ] || { echo "prune-backups refused: cannot resolve the base branch" >&2; exit 1; }
+[ -n "$base" ] || refuse "cannot resolve the base branch"
 current="$(g rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 
-# Every backup a live goal (any worktree's goal file) or a registry entry still lists stays put.
-listed="$(
-  {
-    for f in "$STATE_DIR"/goal.json "$STATE_DIR"/goals/*.json; do [ -f "$f" ] && printf '%s\n' "$f"; done
-    rd="$(reg_dir 2>/dev/null)" && for f in "$rd"/*.json; do [ -f "$f" ] && printf '%s\n' "$f"; done
-  } | while IFS= read -r f; do jq -r '(.backup_branches // [])[]' "$f" 2>/dev/null || true; done | sort -u
-)"
+# Every backup a goal file (any worktree's, all kept in the main checkout's state dir) or a registry entry lists stays
+# put. A file that cannot be read refuses the run: it might list a backup.
+files=()
+for f in "$STATE_DIR"/goal.json "$STATE_DIR"/goals/*.json; do
+  if [ -f "$f" ]; then files+=("$f"); fi
+done
+if rd="$(reg_dir 2>/dev/null)"; then
+  for f in "$rd"/*.json; do
+    if [ -f "$f" ]; then files+=("$f"); fi
+  done
+fi
+listed=""
+for f in ${files[@]+"${files[@]}"}; do
+  l="$(jq -r '(.backup_branches // [])[]' "$f" 2>/dev/null)" || refuse "cannot read $f"
+  listed+="$l"$'\n'
+done
 
 n=0 acted=0 kept=0
 while IFS= read -r b; do
@@ -40,10 +50,13 @@ while IFS= read -r b; do
   tip="$(g rev-parse --short "refs/heads/$b")"
   if grep -qxF "$b" <<<"$listed"; then say "backup $b @ $tip kept (listed by a goal)"; kept=$((kept + 1)); continue; fi
   merged=""
-  g merge-base --is-ancestor "refs/heads/$b" "origin/$base" 2>/dev/null && merged=1
+  if g merge-base --is-ancestor "refs/heads/$b" "origin/$base" 2>/dev/null; then merged=1; fi
   if [ -z "$confirmed" ]; then
+    aref="refs/harness/backups/${b#backup/}"
+    have="$(g rev-parse -q --verify "$aref" 2>/dev/null || true)"
     if [ -n "$merged" ]; then say "backup $b @ $tip would be deleted (in origin/$base)"
-    else say "backup $b @ $tip would be archived to refs/harness/backups/${b#backup/}, then deleted"; fi
+    elif [ -n "$have" ] && [ "$have" != "$(g rev-parse "refs/heads/$b")" ]; then say "backup $b @ $tip would be kept (archive name $aref is taken)"
+    else say "backup $b @ $tip would be archived to $aref, then deleted"; fi
     continue
   fi
   if msg="$(backup_retire "$CO" "$b" "$merged")"; then acted=$((acted + 1)); else kept=$((kept + 1)); fi

@@ -771,6 +771,54 @@ check "prune-backups bad flag: exits 2" test $rc -eq 2
 rm -f "$PREG/gone.json"; git -C "$TMP/work" branch -q -D backup/old-unmerged backup/listed backup/reg backup/Foo_bar
 git -C "$TMP/work" update-ref -d refs/harness/backups/old-unmerged
 
+# prune-backups edge cases: no registry dir, a corrupt list, detached HEAD, no base, linked worktrees.
+cfresh; rm -rf "$PREG"
+git -C "$TMP/work" branch -q backup/solo origin/master
+prune; rc=$?
+check "prune-backups no registry dir: dry run exits 0" test $rc -eq 0
+check "prune-backups no registry dir: dry run lists the backup" grep -q '^prune-backups: backup backup/solo @ [0-9a-f]* would be deleted' "$FX/out"
+prune --confirmed; rc=$?
+check "prune-backups no registry dir: exits 0" test $rc -eq 0
+check "prune-backups no registry dir: merged backup deleted" bash -c '! git -C "$1" show-ref --verify --quiet refs/heads/backup/solo' _ "$TMP/work"
+git -C "$TMP/work" branch -q backup/solo origin/master
+mkdir -p "$PREG" && echo '{' >"$PREG/bad.json"
+prune --confirmed; rc=$?
+check "prune-backups corrupt registry entry: refuses" test $rc -eq 1
+check "prune-backups corrupt registry entry: names the file" grep -q 'prune-backups refused: cannot read .*bad.json' "$FX/out"
+check "prune-backups corrupt registry entry: backup kept" local_exists backup/solo
+rm -f "$PREG/bad.json"
+git -C "$TMP/work" checkout -q --detach
+prune --confirmed; rc=$?
+check "prune-backups detached HEAD: exits 0" test $rc -eq 0
+check "prune-backups detached HEAD: merged backup deleted" bash -c '! git -C "$1" show-ref --verify --quiet refs/heads/backup/solo' _ "$TMP/work"
+git -C "$TMP/work" checkout -q feat
+git -C "$TMP/work" branch -q backup/solo origin/master
+: >"$FX/default_branch"; git -C "$TMP/work" remote set-head origin -d >/dev/null 2>&1
+prune --confirmed; rc=$?
+check "prune-backups no base: refuses" test $rc -eq 1
+check "prune-backups no base: says why" grep -q 'prune-backups refused: cannot resolve the base branch' "$FX/out"
+check "prune-backups no base: backup kept" local_exists backup/solo
+rm -f "$FX/default_branch"; git -C "$TMP/work" remote set-head origin master >/dev/null 2>&1
+git -C "$TMP/work" branch -q -D backup/solo
+git -C "$TMP/work" checkout -q -b backup/inuse && ( cd "$TMP/work" && echo i >i && git add i && git commit -qm I ) >/dev/null 2>&1
+PIN="$(git -C "$TMP/work" rev-parse HEAD)"; git -C "$TMP/work" checkout -q feat
+git -C "$TMP/work" worktree add -q "$TMP/pwt" backup/inuse >/dev/null 2>&1
+git -C "$TMP/work" worktree add -q -b feat-other "$TMP/pwt2" origin/master >/dev/null 2>&1
+git -C "$TMP/work" branch -q backup/other-goal origin/master
+( cd "$TMP/pwt2" && CLAUDE_PROJECT_DIR="$TMP/pwt2" bash "$H/goal.sh" set other >/dev/null )
+OG="$(cd "$TMP/pwt2" && CLAUDE_PROJECT_DIR="$TMP/pwt2" bash -c '. "$1/lib.sh"; printf "%s\n" "$GOAL_FILE"' _ "$H")"
+jq '.backup_branches=["backup/other-goal"]' "$OG" >"$FX/t" && mv "$FX/t" "$OG"
+prune --confirmed; rc=$?
+check "prune-backups linked worktree: exits 0" test $rc -eq 0
+check "prune-backups linked worktree: in-use backup archived" test "$(git -C "$TMP/work" rev-parse -q --verify refs/harness/backups/inuse)" = "$PIN"
+check "prune-backups linked worktree: in-use branch kept" test "$(git -C "$TMP/work" rev-parse -q --verify refs/heads/backup/inuse)" = "$PIN"
+check "prune-backups linked worktree: says it is checked out" grep -q '^prune-backups: backup backup/inuse archived to refs/harness/backups/inuse; branch kept (checked out in a worktree)' "$FX/out"
+check "prune-backups other worktree's goal: listed backup kept" local_exists backup/other-goal
+check "prune-backups other worktree's goal: says listed" grep -q '^prune-backups: backup backup/other-goal @ [0-9a-f]* kept (listed by a goal)' "$FX/out"
+rm -f "$OG"
+git -C "$TMP/work" worktree remove --force "$TMP/pwt" >/dev/null 2>&1; git -C "$TMP/work" worktree remove --force "$TMP/pwt2" >/dev/null 2>&1
+git -C "$TMP/work" branch -q -D backup/inuse backup/other-goal feat-other; git -C "$TMP/work" update-ref -d refs/harness/backups/inuse
+
 cfresh; mutate '.state="OPEN"' view.json; cleanup 5; rc=$?
 check "cleanup not merged: refused" test $rc -eq 1
 check "cleanup not merged: nothing deleted" no_delete
@@ -1170,6 +1218,12 @@ CLEAN_DENY_CMDS="$(cat <<'CMDS'
 agent-harness prune-backups --force
 agent-harness prune-backups --confirmed backup/x
 GH_BIN=/tmp/gh agent-harness prune-backups --confirmed
+prune-backups.sh --confirmed --force
+GH_BIN=/tmp/gh bash ~/.claude/scripts/agent-harness/prune-backups.sh --confirmed
+bash ./x/prune-backups.sh --confirmed junk
+bash ./x/prune-backups.sh --confirmed
+./agent-harness prune-backups --confirmed
+bash ~/.claude/scripts/agent-harness/agent-harness.sh prune-backups --confirmed
 GH_BIN=/tmp/gh agent-harness cleanup 5
 env AGENT_HARNESS_TEST=1 agent-harness cleanup 5
 agent-harness cleanup 5 --force
