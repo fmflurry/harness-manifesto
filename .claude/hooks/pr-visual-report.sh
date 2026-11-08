@@ -88,6 +88,7 @@ provenance_merge_ok() {
   done
   [ -n "$method" ] || { say "pr-provenance: choose --rebase or --merge, or use agent-harness ship-merge for squash"; return 1; }
   [ "$next" = 0 ] && [[ "$expected" =~ ^[a-f0-9]{40,64}$ ]] || { say "pr-provenance: merge requires --match-head-commit with the current PR head SHA"; return 1; }
+  [ "${CMD_DIR:-}" != "?" ] || { say "pr-provenance: cannot tell which checkout this merge runs in"; return 1; }
   output="$(cd "${CMD_DIR:-$HOOK_CWD}" && HARNESS_GH_COMMAND="$PROVENANCE_GH" node "$helper" merge "$ref" "$expected" 2>&1)" && return 0
   say "$output"
   return 1
@@ -282,6 +283,7 @@ take_body_flags() {
     return 1
   fi
   # The body file is read where the command runs; the checks read the PR head's registered worktree when --head names one.
+  [ "$CMD_DIR" != "?" ] || { say "pr-visual-report: cannot tell which checkout this PR command runs in; run it from the checkout (or one plain cd <absolute path> &&) without pushd, popd, cd -, ~ or ||"; return 1; }
   check_dir="$CMD_DIR"
   if [ -n "$PR_HEAD" ]; then check_dir="$(goal_branch_worktree "$CMD_DIR" "${PR_HEAD#*:}" 2>/dev/null)" || check_dir="$CMD_DIR"; fi
   if [ "$KIND" = file ]; then
@@ -323,22 +325,28 @@ args_until_sep() {
 }
 
 inspect() {
-  local i=0 n=${#TOKENS[@]} cmdpos=1 t base d
+  local i=0 n=${#TOKENS[@]} cmdpos=1 t base d sep=""
   CMD_DIR="$HOOK_CWD"
   while [ "$i" -lt "$n" ]; do
     t="${TOKENS[$i]}"
-    if is_sep "$t"; then cmdpos=1; i=$((i + 1)); continue; fi
+    if is_sep "$t"; then cmdpos=1; sep="$t"; i=$((i + 1)); continue; fi
     if [ "$cmdpos" -eq 1 ]; then
       if [[ "$t" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then i=$((i + 1)); continue; fi
       base="${t##*/}"
       if [ "$base" = "command" ] || [ "$base" = "env" ] || [ "$base" = "time" ]; then
         i=$((i + 1)); continue
       fi
-      # A cd earlier in the chain moves the checkout the PR commands below act on.
+      # A cd earlier in the chain moves the checkout the PR commands below act on. Any cd the hook cannot follow
+      # (no word, a flag, ~, $, a missing path, after ||, pushd/popd/builtin) makes the checkout unknown: fail closed.
       if [ "$base" = "cd" ]; then
         d="${TOKENS[$((i + 1))]:-}"
-        case "$d" in /*) ;; *) d="$CMD_DIR/$d" ;; esac
-        d="$(cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && CMD_DIR="$d"
+        if [ "$CMD_DIR" = "?" ] || [ "$sep" = "||" ] || [ "$sep" = "|" ] || [ "$sep" = "&" ] || [ -z "$d" ] || is_sep "$d"; then CMD_DIR="?"
+        else
+          case "$d" in -* | \~* | *'$'*) CMD_DIR="?" ;; /*) ;; *) d="$CMD_DIR/$d" ;; esac
+          if [ "$CMD_DIR" != "?" ]; then d="$(cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && CMD_DIR="$d" || CMD_DIR="?"; fi
+        fi
+      elif [ "$base" = "pushd" ] || [ "$base" = "popd" ] || [ "$base" = "builtin" ]; then
+        CMD_DIR="?"
       # gh-* covers token wrappers such as gh-isag that exec gh.
       elif [ "$base" = "gh" ] || [[ "$base" == gh-* ]]; then
         PROVENANCE_GH="$t"

@@ -2812,6 +2812,17 @@ touch "$LM/.claude/state/autonomy.on"
 check "push guard: cd into an unreviewed goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LM" "cd $LT && git push -u origin feat/ui-cd-guard")"
 check "push guard: git -C an unreviewed goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LM" "git -C $LT push -u origin feat/ui-cd-guard")"
 check "gh pr create guard: --head of an unreviewed goal denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LM" "gh pr create --head feat/ui-cd-guard --fill")"
+# Fail closed: a target checkout without a gated goal keeps the session's goal.
+check "push guard: from a goal worktree, git -C main still gates the push" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "git -C $LM push origin feat/ui-cd-guard")"
+check "push guard: from a goal worktree, cd main still gates the push" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "cd $LM && git push origin feat/ui-cd-guard")"
+check "gh pr create guard: from a goal worktree, cd main with an unregistered --head denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "cd $LM && gh pr create --head feat/unregistered --fill")"
+LH ship-init fix ui esc-goal >"$FX/out" 2>/dev/null; LT2="$(cat "$FX/out")"
+LCWD="$LT2" LH goal escalate "stuck" >/dev/null 2>&1
+check "push guard: git -C a worktree whose goal is escalated still gates the push" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "git -C $LT2 push origin feat/ui-cd-guard")"
+git -C "$LM" worktree add -q -f "$LROOT/stray" feat/ui-cd-guard >/dev/null 2>&1
+check "push guard: a goal-less extra checkout of the branch still gates the push" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "cd $LROOT/stray && git push origin feat/ui-cd-guard")"
+git -C "$LM" worktree remove --force "$LROOT/stray" >/dev/null 2>&1
+check "git guard: writing the goal registry from the shell denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "echo {} > $LM/.git/agent-harness/goals/feat-x.json")"
 LCWD="$LT" LH goal review code pass >/dev/null 2>&1
 LCWD="$LT" LH goal review security pass >/dev/null 2>&1
 check "push guard: cd finds the reviews recorded in the worktree" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "cd $LT && git push -u origin feat/ui-cd-guard")"
@@ -2819,7 +2830,23 @@ check "push guard: git -C finds the reviews recorded in the worktree" bash -c '!
 check "gh pr create guard: cd finds the worktree's reviews" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "cd $LT && gh pr create --fill")"
 check "gh pr create guard: --head maps to the registered worktree's reviews" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "gh pr create --head feat/ui-cd-guard --fill")"
 check "gh pr create guard: --head of an unregistered branch still denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "gh pr create --head feat/other --fill")"
+check "gh pr create guard: reviewed worktree allows a plain create" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LT" "gh pr create --fill")"
+check "gh pr create guard: --head owner:branch with a foreign owner denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "gh pr create --head evil:feat/ui-cd-guard --fill")"
+check "gh pr create guard: --repo other than origin denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LT" "gh pr create --repo evil/repo --fill")"
 rm -f "$LM/.claude/state/autonomy.on"
+for c in "cd $LT && cd - && gh pr create" "cd $LM && pushd $LT && gh pr create" "cd $LM && cd -P $LT && gh pr create" "false || cd $LT && gh pr create" "cd ~ && gh pr create" "cd $LROOT/missing && gh pr create"; do
+  out="$(lw_guard pr-visual-report.sh "$LM" "$c --base master --body-file $LT/bare.md")"
+  check "pr-visual-report fails closed on an untracked cd: $c" grep -q 'cannot tell which checkout' <<<"$out"
+done
+
+# ship-init archives a stale log under a reused slug; the exclude append keeps the last line intact
+lw_fixture git
+mkdir -p "$LM/.claude/state/decisions"; printf 'old row\n' >"$LM/.claude/state/decisions/feat-ui-stale.tsv"
+printf 'foo' >"$LM/.git/info/exclude"
+LH ship-init feat ui stale >/dev/null 2>&1
+check "ship-init: a stale log under the slug is archived" test "$(cat "$LM/.claude/state/decisions/archive/feat-ui-stale.tsv")" = "old row"
+check "ship-init: the new log starts with only the header" test "$(wc -l <"$LM/.claude/state/decisions/feat-ui-stale.tsv" | tr -d ' ')" = 1
+check "ship-init: exclude append keeps a last line without newline" test "$(cat "$LM/.git/info/exclude")" = "$(printf 'foo\n.claude/state/')"
 
 lw_td git
 check "ship-merge-style teardown from main: goal pr recorded on the feature goal" test "$(lreg feat-td-x .pr)" = 5

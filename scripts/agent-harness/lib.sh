@@ -252,6 +252,7 @@ exclude_state_dir() {
   file="$(git -C "$ROOT" rev-parse --path-format=absolute --git-path info/exclude)"
   grep -Fxq '.claude/state/' "$file" 2>/dev/null && return 0
   mkdir -p "$(dirname "$file")"
+  [ ! -s "$file" ] || [ -z "$(tail -c 1 "$file")" ] || echo >>"$file"
   echo '.claude/state/' >>"$file"
 }
 

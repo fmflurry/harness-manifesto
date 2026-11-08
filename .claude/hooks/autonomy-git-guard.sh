@@ -63,7 +63,7 @@ GG_HUGE='
 BEGIN {
   RS = "\034"
   word = "git|gh|rm|mv|cp|ln|tee|sed|dd|perl|python|node|ruby|rsync|find|trash|truncate|touch|install|sponge|direnv|orca|ship-init|ship-merge|worktree|teardown|agent-harness|cleanup|xargs|pushd|popd"
-  prot = "\\.claude/|\\.github/|\\.opencode/|goal\\.json|autonomy\\.on|opencode\\.jsonc|AGENTS\\.md|CLAUDE\\.md|agents\\.md|claude\\.md|\\.envrc|tools/agent-harness/|tools/ci/|rmtree|rm_rf|rmSync|remove_tree|rmdir"
+  prot = "\\.claude/|\\.github/|\\.opencode/|\\.git/agent-harness/|goal\\.json|autonomy\\.on|opencode\\.jsonc|AGENTS\\.md|CLAUDE\\.md|agents\\.md|claude\\.md|\\.envrc|tools/agent-harness/|tools/ci/|rmtree|rm_rf|rmSync|remove_tree|rmdir"
 }
 function outside_bad(t) {
   return t ~ word || t ~ prot || index(t, "<") || index(t, ">") || index(t, "$") || index(t, "{") || index(t, "`") || index(t, "\\")
@@ -148,14 +148,16 @@ goal_scope_select "${CLAUDE_PROJECT_DIR:-$cwd}" "$cwd"
 goal_bind_file "$STATE_DIR"
 SESSION_REPO="$GS_REPO" SESSION_GOAL_FILE="$GOAL_FILE"
 
-# goal_for_dir <dir>: bind GOAL_FILE to the checkout a command runs in (after cd or git -C) when that checkout is a
-# worktree of the session's repository, so each goal's own reviews gate its push. Otherwise keep the session's goal.
+# goal_for_dir <dir>: bind GOAL_FILE to the goal of the checkout a command runs in (after cd or git -C), so that
+# goal's own reviews gate it. Fails closed: the switch happens only when that goal is itself gated; a checkout with
+# no goal, or an escalated, blocked or done one, keeps the session's goal.
 goal_for_dir() {
   GOAL_FILE="$SESSION_GOAL_FILE"
   [ -n "$1" ] && [ "$1" != "?" ] && [ -d "$1" ] && [ -n "$SESSION_REPO" ] || return 0
   goal_scope_resolve "$1"
-  [ "${GS_KIND:-none}" != none ] && [ "$GS_REPO" = "$SESSION_REPO" ] || { GOAL_FILE="$SESSION_GOAL_FILE"; return 0; }
+  [ "${GS_KIND:-none}" != none ] && [ "$GS_REPO" = "$SESSION_REPO" ] || return 0
   goal_bind_file "$STATE_DIR"
+  gate_on || GOAL_FILE="$SESSION_GOAL_FILE"
 }
 
 CONFIG_FILE="$ROOT/.claude/agent-harness.json"
@@ -171,7 +173,7 @@ alts="$(cfg '(.protectedPaths // []) | map(ltrimstr("^")) | join("|")')"
 alts="${alts:-$DEFAULT_ALTS}"
 ALTS_DEFAULT=0
 [ "$alts" = "$DEFAULT_ALTS" ] && ALTS_DEFAULT=1
-AUTONOMY_FLAG='\.claude/state/(autonomy\.on|goal\.json)'
+AUTONOMY_FLAG='\.claude/state/(autonomy\.on|goal\.json)|\.git/agent-harness/'
 TOKEN_RE="(^|/)(${alts})|${AUTONOMY_FLAG}"
 if [ "$WIN" = 1 ]; then lc "$TOKEN_RE"; TOKEN_RE="$LCV"; fi
 LOOSE_RE="$(sed -E 's/\$(\||$)/\1/g' <<<"$alts")|${AUTONOMY_FLAG}"
@@ -616,14 +618,21 @@ check_gh() {
   local line="$*" t method=0
   gh_has ' pr( .*)? merge( |$)' && deny
   if gh_has ' pr( .*)? (create|new)( |$)'; then
-    local gd="$cwd" head="" hd="" prev=""
+    local gd="$cwd" head="" hd="" prev="" repo="" origin=""
     cd_sync
     [ -n "${CD_BASE:-}" ] && gd="$CD_BASE"
     for t in "$@"; do
-      case "$prev" in --head | -H) head="$t" ;; esac
-      case "$t" in --head=*) head="${t#*=}" ;; esac
+      case "$prev" in --head | -H) head="$t" ;; --repo | -R) repo="$t" ;; esac
+      case "$t" in --head=*) head="${t#*=}" ;; --repo=*) repo="${t#*=}" ;; esac
       prev="$t"
     done
+    if gate_on || { goal_for_dir "$gd"; gate_on; }; then
+      # owner:branch or --repo can open the PR from or against another repository than origin.
+      origin="$(git -C "${gd/#\?/$cwd}" remote get-url origin 2>/dev/null | sed -E 's#/*$##; s#\.git$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#')"
+      if [[ "$head" == *:* ]] && [ "${head%%:*}" != "${origin%%/*}" ]; then deny_review "gh pr create --head owner:branch must name origin's owner (${origin%%/*})."; fi
+      if [ -n "$repo" ] && [ "${repo#*github.com/}" != "$origin" ]; then deny_review "gh pr create --repo must name origin ($origin)."; fi
+    fi
+    GOAL_FILE="$SESSION_GOAL_FILE"
     # --head names a branch; only its registered goal worktree proves which reviewed diff it carries.
     [ -z "$head" ] || [ "$gd" = "?" ] || hd="$(goal_branch_worktree "$gd" "${head#*:}")" || hd=""
     [ -z "$hd" ] || gd="$hd"
@@ -1455,7 +1464,7 @@ function maybe_prot(t) {
   if (win) t = tolower(t)
   return index(t, ".github/") || index(t, ".claude/") || index(t, ".opencode/") || index(t, "tools/agent-harness/") \
     || index(t, "tools/ci/") || index(tolower(t), "goal.json") || index(tolower(t), "autonomy.on") || index(t, "opencode.jsonc") || index(t, "agents.md") || index(t, "claude.md") \
-    || index(t, "AGENTS.md") || index(t, "CLAUDE.md") || index(t, ".envrc")
+    || index(t, "AGENTS.md") || index(t, "CLAUDE.md") || index(t, ".envrc") || index(t, ".git/agent-harness/")
 }
 function segkeep(s,   t, k, b, i, a, n, ps) {
   sub(/^[ \t\r\f\v({]+/, "", s)
@@ -1985,7 +1994,7 @@ pushfast=1
 case "$BASE_A$BASE_B" in *\\* | *\"* | *\'* | *$'\n'*) pushfast=0 ;; esac
 gate_on && pushfast=0
 # A push run in another goal worktree (cd, git -C) is gated by that worktree's goal, so no fast path while any goal exists.
-[ "$AUTO" = 1 ] && [ -d "$STATE_DIR/goals" ] && pushfast=0
+[ "$AUTO" = 1 ] && [ -n "$(find "$STATE_DIR/goals" -maxdepth 1 -name '*.json' 2>/dev/null | head -n 1)" ] && pushfast=0
 merged=0
 if [[ "$cmd" != *\\* ]]; then
   # One awk pass yields the quote-aware scan and the legacy segments. Splits stay outside quotes,
