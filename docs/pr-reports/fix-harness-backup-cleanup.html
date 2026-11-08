@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Harness: backup and worktree cleanup</title>
+<style>
+body{background:#FAF6EE;font-family:Georgia,'Times New Roman',serif;color:#2b2622;margin:0;padding:32px}
+h1{font-size:26px;margin:0 0 6px}p.sub{margin:0 0 20px;color:#6b5f55}
+.cols{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card h2{font-size:16px;margin:0 0 8px}ul{margin:0;padding-left:18px;font-size:14px;line-height:1.55}
+.flow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 12px;font-size:14px}
+.step{background:#fff;border:1px solid #e4dccf;border-radius:10px;padding:8px 10px}
+.ok{color:#2f7a3b}.risk{color:#9a5a12}code{font-size:13px;background:#f1ebe0;padding:1px 4px;border-radius:4px}
+@media (max-width:820px){.cols{grid-template-columns:1fr}}
+</style></head><body>
+<h1>Backups are cleaned up after a squash merge; worktree-rm works with Orca closed</h1>
+<p class="sub">0.4.40. Before: pre-rebase backups were never deleted (orbit had 22), and worktree-rm stopped whenever Orca's app was closed.</p>
+<div class="cols">
+<div class="card"><h2>Backups (cleanup.sh)</h2>
+<div class="flow"><span class="step">PR merged</span>→<span class="step">backups from goal file, else registry</span>→<span class="step">ancestor of merge: delete</span>→<span class="step">else: archive to <code>refs/harness/backups/&lt;name&gt;</code> (create only), then delete branch</span></div>
+<ul><li><code>goal backup-add</code> mirrors into the registry, which outlives the worktree</li><li>An archive name already taken by another tip keeps the branch</li></ul></div>
+<div class="card"><h2>worktree-rm with Orca closed (lib.sh, worktree-core.sh)</h2>
+<div class="flow"><span class="step"><code>orca repo list</code> fails with <code>runtime_unavailable</code></span>→<span class="step"><code>offline</code></span>→<span class="step"><code>lsof</code> sees this shell and no process in the worktree</span>→<span class="step">git removes it</span></div>
+<ul><li>lsof missing or blind: stop</li><li>stderr warnings never break the stdout parse</li><li>Teardown of an Orca-created goal still stops</li></ul></div>
+<div class="card"><h2>Tests</h2><ul class="ok"><li>Suite in a clean env: 2405 passed / 75 failed; master 2388 / 75 (same failures)</li><li>New: archive, name taken, registry mirror, squash teardown, lsof blind stub, orca offline, stderr warning</li></ul></div>
+<div class="card"><h2>Risks</h2><ul class="risk"><li>lsof sees only the current user's processes and working directories</li><li>Backups made before this change have no registry entry and stay</li></ul></div>
+</div></body></html>

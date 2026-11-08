@@ -41,6 +41,8 @@ case "$cmd" in
     [[ "$n" =~ ^backup/[a-z0-9]+(-[a-z0-9]+)*$ ]] || { echo "goal backup-add: '$n' must match backup/<kebab-slug>" >&2; exit 2; }
     git show-ref --verify --quiet "refs/heads/$n" || { echo "goal backup-add: local branch '$n' does not exist" >&2; exit 2; }
     goal_update --arg n "$n" '.backup_branches = ((.backup_branches // []) + [$n] | unique)'
+    # The registry outlives the worktree, so cleanup after a teardown still finds the backups.
+    reg_mirror --arg n "$n" '.backup_branches = ((.backup_branches // []) + [$n] | unique)'
     ;;
   sha)
     goal_update --arg s "${1:?head sha}" '.head_sha = $s'
