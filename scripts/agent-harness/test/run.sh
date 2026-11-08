@@ -1959,8 +1959,9 @@ wg deny "$WM" "echo /p | xargs rm -rf"
 wg deny "$WM" "python3 -c 'import shutil; shutil.rmtree(\"/Users/x/orca/workspaces/r/w\")'"
 wg deny "$WM" "orca --json worktree rm --worktree path:/x"
 wg deny "$WM" "export ORCA_BIN=/t; agent-harness worktree-rm /x --confirmed"
-check "git-guard worktree (off) ask: bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed" test "$(wg_decision off "$WM" "bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed")" = ask
-check "git-guard worktree (on) allow: bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed" test "$(wg_decision on "$WM" "bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed")" = allow
+check "git-guard worktree (off) deny shell flags: bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed" test "$(wg_decision off "$WM" "bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed")" = deny
+check "git-guard worktree (on) deny shell flags: bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed" test "$(wg_decision on "$WM" "bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed")" = deny
+check "git-guard worktree (on) allow: bash scripts/agent-harness/worktree-rm.sh /p --confirmed" test "$(wg_decision on "$WM" "bash scripts/agent-harness/worktree-rm.sh /p --confirmed")" = allow
 check "git-guard worktree (off) ask: agent-harness worktree-rm /x --confirmed" test "$(wg_decision off "$WM" "agent-harness worktree-rm /x --confirmed")" = ask
 check "git-guard worktree (on) allow: agent-harness worktree-rm /x --confirmed" test "$(wg_decision on "$WM" "agent-harness worktree-rm /x --confirmed")" = allow
 check "git-guard worktree (on) allow: ~/.local/bin/agent-harness worktree-rm /x --confirmed" test "$(wg_decision on "$WM" "~/.local/bin/agent-harness worktree-rm /x --confirmed")" = allow
@@ -2869,10 +2870,14 @@ for c in "cd /tmp/x && agent-harness ship-init feat ui x" "agent-harness ship-in
 done
 check "lifecycle guard keeps the argument message for a bad shape" grep -q 'take exactly their documented arguments' <<<"$(gate_reason "agent-harness ship-init feat Ui x")"
 check "prune-backups guard names the documented shape" grep -qF 'prune-backups takes exactly `agent-harness prune-backups [--confirmed]`' <<<"$(gate_reason "agent-harness prune-backups --force")"
-for c in "bash -o errexit ./x/prune-backups.sh --confirmed" "bash -O extglob ./x/prune-backups.sh" "bash --rcfile /dev/null ./x/prune-backups.sh --confirmed" "bash -o errexit ./x/cleanup.sh 5" "bash -o errexit ./x/worktree-rm.sh /x --force"; do
-  check "guard skips a shell option and its value: $c" denied "$c"
+for f in "-eo pipefail" "-xO extglob" "+o errexit" "+O extglob" "-o errexit" "--rcfile /dev/null"; do
+  for t in "./x/prune-backups.sh --confirmed" "./x/cleanup.sh 5" "./x/worktree-rm.sh /x --confirmed" "./x/agent-harness.sh cleanup 5" "~/.claude/scripts/agent-harness/prune-backups.sh --confirmed"; do
+    check "guard denies shell flags before a harness script: bash $f $t" denied "bash $f $t"
+  done
 done
-check "guard still allows an installed prune-backups after a shell option" allowed "bash -o errexit ~/.claude/scripts/agent-harness/prune-backups.sh --confirmed"
+check "guard names shell flags" grep -q 'run the harness script without shell options' <<<"$(gate_reason "bash -eo pipefail ./x/prune-backups.sh --confirmed")"
+check "guard still allows a plain installed prune-backups" allowed "bash ~/.claude/scripts/agent-harness/prune-backups.sh --confirmed"
+check "guard still allows shell flags on a non-harness script" allowed "bash -e ./build.sh"
 check "branch delete denial names prune-backups" grep -q 'agent-harness prune-backups' <<<"$(gate_reason "git branch -D backup/x")"
 for c in "agent-harness cleanup 15 --confirmed" "agent-harness cleanup --help" "agent-harness cleanup 5 6" "agent-harness cleanup"; do
   check "cleanup guard denies a bad shape: $c" denied "$c"

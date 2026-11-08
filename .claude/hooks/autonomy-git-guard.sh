@@ -192,6 +192,7 @@ deny_harness_env() { emit deny "Blocked by git-guard: run agent-harness as one p
 deny_harness_cmd() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree take exactly their documented arguments as one plain command."; }
 deny_harness_chain() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree must run alone, not after a cd prefix or in a && ; | chain. They act on the session's working directory: run ship-init from a session whose working directory is the target repo."; }
 deny_cleanup_shape() { emit deny "Blocked by git-guard: cleanup takes exactly \`agent-harness cleanup <pr> [--keep-branch]\`: a PR number, then optionally --keep-branch, and no other flag (no --confirmed, no --help)."; }
+deny_shell_flags() { emit deny "Blocked by git-guard: run the harness script without shell options (no -x, -e, -o, +O or similar before it)."; }
 deny_prune_shape() { emit deny "Blocked by git-guard: prune-backups takes exactly \`agent-harness prune-backups [--confirmed]\`: no other argument."; }
 deny_alias() { emit deny "Blocked by git-guard: git aliases can smuggle worktree removal; do not define or pass alias.* settings."; }
 deny_branch_delete() { emit deny "Blocked by git-guard: branch deletion only via agent-harness cleanup <pr> after merge, or agent-harness prune-backups for leftover backup/* branches."; }
@@ -925,17 +926,20 @@ wt_rm_entry() {
   esac
   return 1
 }
+# shell_flag_run <script.sh> args...: true when a shell flag (-x, -o, +O ...) comes first and a later word runs
+# <script.sh> or agent-harness.sh. No harness call needs shell flags, and parsing them is how a script word gets hidden.
+shell_flag_run() {
+  local n="$1" a; shift
+  [[ "${1:-}" == [-+]* ]] || return 1
+  for a in "$@"; do case "${a##*/}" in "$n" | agent-harness.sh) return 0 ;; esac; done
+  return 1
+}
 check_worktree_rm() {
   local has_assign="$1" c0="$2"; shift 2
   local rest=() legit=0 script
   case "$c0" in
     bash | sh | zsh | dash)
-      # Skip shell options, and the value of those that take one, so the script word is the one bash runs.
-      while [[ "${1:-}" == -* && "$1" != -- ]]; do
-        case "$1" in -o | -O | +O | --rcfile | --init-file) shift ;; esac
-        shift
-      done
-      [ "${1:-}" != -- ] || shift
+      ! shell_flag_run worktree-rm.sh "$@" || deny_shell_flags
       script="${1:-}"
       [[ "${script##*/}" == worktree-rm.sh ]] || return 1
       wt_rm_entry "$script" && legit=1
@@ -998,11 +1002,7 @@ check_cleanup() {
   local rest=()
   case "$c0" in
     bash | sh | zsh | dash)
-      while [[ "${1:-}" == -* && "$1" != -- ]]; do
-        case "$1" in -o | -O | +O | --rcfile | --init-file) shift ;; esac
-        shift
-      done
-      [ "${1:-}" != -- ] || shift
+      ! shell_flag_run cleanup.sh "$@" || deny_shell_flags
       [[ "${1:-}" =~ cleanup\.sh$ ]] || return 1
       [[ "$1" == */scripts/agent-harness/cleanup.sh ]] || deny
       shift; rest=("$@") ;;
@@ -1032,12 +1032,7 @@ check_prune_backups() {
   local rest=()
   case "$c0" in
     bash | sh | zsh | dash)
-      # Skip shell options, and the value of those that take one, so the script word is the one bash runs.
-      while [[ "${1:-}" == -* && "$1" != -- ]]; do
-        case "$1" in -o | -O | +O | --rcfile | --init-file) shift ;; esac
-        shift
-      done
-      [ "${1:-}" != -- ] || shift
+      ! shell_flag_run prune-backups.sh "$@" || deny_shell_flags
       case "${1##*/}" in
         prune-backups.sh) prune_entry "$1" || deny_prune_shape ;;
         agent-harness.sh) [ "${2:-}" = prune-backups ] || return 1; deny_prune_shape ;;
@@ -1064,12 +1059,7 @@ check_harness_cmd() {
   local name="$1" shape="$2" has_assign="$3" c0="$4" a script=""; shift 4
   case "$c0" in
     bash | sh | zsh | dash)
-      # Skip shell options, and the value of those that take one, so the script word is the one bash runs.
-      while [[ "${1:-}" == -* && "$1" != -- ]]; do
-        case "$1" in -o | -O | +O | --rcfile | --init-file) shift ;; esac
-        shift
-      done
-      [ "${1:-}" != -- ] || shift
+      ! shell_flag_run "$name.sh" "$@" || deny_shell_flags
       script="${1:-}"
       case "${script##*/}" in
         "$name.sh") deny_harness_cmd ;;
