@@ -1902,6 +1902,8 @@ case "${1:-} ${2:-}" in
   "repo list")
     [ ! -e "$FX/orca_repo_fail" ] || exit 1
     [ ! -e "$FX/orca_repo_offline" ] || { echo '{"id":"local","ok":false,"error":{"code":"runtime_unavailable","message":"Start the Orca app first."}}'; exit 1; }
+    [ ! -e "$FX/orca_repo_offline_warn" ] || { { echo '(node:1) ExperimentalWarning: test'; jq -n '{id:"local",ok:false,error:{code:"runtime_unavailable"}}'; } >&2; exit 1; }
+    [ ! -e "$FX/orca_repo_warn" ] || echo '(node:1) ExperimentalWarning: test' >&2
     if [ -e "$FX/orca_repo_managed" ]; then jq -n --arg p "$WMAIN" '{ok:true,result:{repos:[{path:$p}]}}'; fi ;;
   "worktree list")
     [ ! -e "$FX/orca_wt_fail" ] || exit 1
@@ -1925,7 +1927,7 @@ wtfx() {
     && echo a >a && echo t >tracked && git add a tracked && git commit -qm A && git push -q origin master \
     && git worktree add -q -b feat-x "$WB/wt" origin/master && git worktree add -q -b feat-sib "$WB/sib" origin/master ) >/dev/null 2>&1
   export WMAIN="$WB/main"; WT="$WB/wt"; SIB="$WB/sib"
-  reset; rm -f "$FX"/orca_wt.json "$FX"/orca_rm_hook "$FX"/orca_repo_fail "$FX"/orca_repo_offline "$FX"/orca_repo_managed "$FX"/orca_wt_fail; echo '{"base":"master"}' >"$CFG"
+  reset; rm -f "$FX"/orca_wt.json "$FX"/orca_rm_hook "$FX"/orca_repo_fail "$FX"/orca_repo_offline "$FX"/orca_repo_offline_warn "$FX"/orca_repo_warn "$FX"/orca_repo_managed "$FX"/orca_wt_fail; echo '{"base":"master"}' >"$CFG"
   WCWD="$WMAIN"
 }
 wtrm() { ( cd "$WCWD" && env ORCA_BIN="$TMP/orcawt" bash "$H/worktree-rm.sh" "$@" ); }
@@ -2077,6 +2079,10 @@ wtfx; : >"$FX/orca_repo_managed"; : >"$FX/orca_wt_fail"; out="$(wtrm "$WT" --con
 check "worktree-rm: a managed repo with an unreadable worktree list is a STOP" test "$rc|$(grep -c 'check activity STOP (orca worktree list unreadable)' <<<"$out")|$(test -d "$WT" && echo kept)" = "1|1|kept"
 wtfx; : >"$FX/orca_repo_managed"; orca_activity 0; out="$(wtrm "$WT" --confirmed 2>&1)"; rc=$?
 check "worktree-rm: a managed repo with a readable idle worktree list proceeds" test "$rc|$(test -e "$WT" && echo kept || echo gone)" = "0|gone"
+wtfx; : >"$FX/orca_repo_managed"; : >"$FX/orca_repo_warn"; orca_activity 0; out="$(wtrm "$WT" --confirmed 2>&1)"; rc=$?
+check "worktree-rm: a stderr warning beside a managed repo list still reads as managed" test "$rc|$(grep -c 'check activity ok (idle' <<<"$out")|$(test -e "$WT" && echo kept || echo gone)" = "0|1|gone"
+wtfx; : >"$FX/orca_repo_offline_warn"; out="$(wtrm "$WT" --confirmed 2>&1)"; rc=$?
+check "worktree-rm: a warning before pretty runtime_unavailable JSON on stderr reads as offline" test "$(grep -c 'orca state unreadable' <<<"$out")|$(grep -cE 'orca app not running' <<<"$out")" = "0|1"
 
 wtfx; mkdir -p "$WMAIN/.git/info"; echo ign >>"$WMAIN/.git/info/exclude"; echo x >"$WT/ign"; out="$(wtrm "$WT" 2>&1)"; rc=$?
 check "worktree-rm: ignored files note in dry run" grep -q "worktree-rm: note $WT has ignored files that will be deleted: ign" <<<"$out"

@@ -182,20 +182,30 @@ realp() { if [ -d "$1" ]; then (cd "$1" && pwd -P); else printf '%s\n' "${1%/}";
 # orca_state: absent (no orca binary) | managed | unmanaged | offline (the Orca app is not running: the CLI answers
 # runtime_unavailable) | error (orca present but its repo list is unreadable for any other reason).
 orca_state() {
-  local main out q paths
+  local main out errf rc q paths
   command -v "$ORCA" >/dev/null 2>&1 || { echo absent; return 0; }
   main="$(main_checkout)" || { echo error; return 0; }
-  if ! out="$("$ORCA" repo list --json 2>&1)"; then
-    # The CLI prints the runtime_unavailable JSON on stdout or stderr depending on the version: read both.
-    if [ "$(jq -sr 'map(.error.code? // empty) | first // empty' <<<"$out" 2>/dev/null)" = runtime_unavailable ]; then echo offline; else echo error; fi
-    return 0
+  errf="$(mktemp)" || { echo error; return 0; }
+  out="$("$ORCA" repo list --json 2>"$errf")"; rc=$?
+  if [ "$rc" != 0 ]; then
+    # runtime_unavailable comes on stdout or stderr depending on the CLI version, pretty-printed or compact, maybe
+    # after warning lines: read each stream whole, from its first "{" line, then line by line.
+    if [ "$({ orca_error_code "$out"; orca_error_code "$(cat "$errf")"; } | head -1)" = runtime_unavailable ]; then echo offline; else echo error; fi
+    rm -f "$errf"; return 0
   fi
+  rm -f "$errf"
   paths="$(jq -r '.. | objects | .path? | strings' <<<"$out" 2>/dev/null)" || { echo error; return 0; }
   main="$(realp "$main")"
   while IFS= read -r q; do
     [ -n "$q" ] && [ "$(realp "$q")" = "$main" ] && { echo managed; return 0; }
   done <<<"$paths"
   echo unmanaged
+}
+orca_error_code() {
+  [ -n "$1" ] || return 0
+  jq -r '.error.code? // empty' <<<"$1" 2>/dev/null ||
+    sed -n '/^{/,$p' <<<"$1" | jq -r '.error.code? // empty' 2>/dev/null ||
+    jq -Rr 'fromjson? | .error.code? // empty' <<<"$1" 2>/dev/null || true
 }
 orca_managed() { [ "$(orca_state)" = managed ]; }
 
