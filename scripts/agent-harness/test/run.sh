@@ -2875,6 +2875,14 @@ for f in "-eo pipefail" "-xO extglob" "+o errexit" "+O extglob" "-o errexit" "--
     check "guard denies shell flags before a harness script: bash $f $t" denied "bash $f $t"
   done
 done
+for sh in bash sh zsh "env bash"; do
+  for f in "\$'-e'" "\$\"-e\""; do
+    for t in "./x/prune-backups.sh --confirmed" "./x/cleanup.sh 5" "./x/worktree-rm.sh /x --confirmed" "./x/agent-harness.sh cleanup 5" "~/.claude/scripts/agent-harness/prune-backups.sh --all"; do
+      check "guard denies a quoted shell flag before a harness script: $sh $f $t" denied "$sh $f $t"
+    done
+  done
+done
+check "guard still allows plain agent-harness prune-backups" allowed "agent-harness prune-backups --confirmed"
 check "guard names shell flags" grep -q 'run the harness script without shell options' <<<"$(gate_reason "bash -eo pipefail ./x/prune-backups.sh --confirmed")"
 check "guard still allows a plain installed prune-backups" allowed "bash ~/.claude/scripts/agent-harness/prune-backups.sh --confirmed"
 check "guard still allows shell flags on a non-harness script" allowed "bash -e ./build.sh"

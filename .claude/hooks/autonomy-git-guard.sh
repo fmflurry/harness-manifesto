@@ -926,12 +926,16 @@ wt_rm_entry() {
   esac
   return 1
 }
-# shell_flag_run <script.sh> args...: true when a shell flag (-x, -o, +O ...) comes first and a later word runs
-# <script.sh> or agent-harness.sh. No harness call needs shell flags, and parsing them is how a script word gets hidden.
+# shell_flag_run <script.sh> args...: true when a later word runs <script.sh> or agent-harness.sh and a shell flag
+# (-x, -o, +O ...) comes first, or a word before it holds $ or a backtick ($'-e' and $"-e" are flags in disguise).
+# No harness call needs shell flags, and parsing them is how a script word gets hidden.
 shell_flag_run() {
-  local n="$1" a; shift
-  [[ "${1:-}" == [-+]* ]] || return 1
-  for a in "$@"; do case "${a##*/}" in "$n" | agent-harness.sh) return 0 ;; esac; done
+  local n="$1" a flag=0; shift
+  [[ "${1:-}" != [-+]* ]] || flag=1
+  for a in "$@"; do
+    case "${a##*/}" in "$n" | agent-harness.sh) [ "$flag" = 1 ]; return ;; esac
+    case "$a" in *'$'* | *'`'*) flag=1 ;; esac
+  done
   return 1
 }
 check_worktree_rm() {
