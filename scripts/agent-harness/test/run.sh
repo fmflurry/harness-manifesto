@@ -2845,6 +2845,11 @@ for c in "cd $LM && { cd -; gh pr create $B; }" "cd $LM && { cd $LT; gh pr creat
   "$(printf 'true\ngh pr create %s' "$B")" "if true; then gh pr create $B; fi" "exec gh pr create $B"; do
   check "pr-visual-report denies a cd or wrapper it cannot follow: $c" lw_denied "$(lw_guard pr-visual-report.sh "$LM" "$c")"
 done
+mkdir -p "$LROOT/cdp"; ln -sfn "$LT" "$LROOT/cdp/xx"; ln -sfn "$LM" "$LM/xx"
+check "pr-visual-report denies a cd resolved through CDPATH" lw_denied "$(lw_guard pr-visual-report.sh "$LM" "CDPATH=$LROOT/cdp cd xx && gh pr create --base master --body-file $LT/bare.md")"
+check "pr-visual-report denies a bare relative cd (CDPATH may apply)" lw_denied "$(lw_guard pr-visual-report.sh "$LM" "cd xx && gh pr create --base master --body-file $LT/body.md")"
+rm -f "$LM/xx"
+check "pr-visual-report allows cd ../<wt> with the worktree's provenance" test -z "$(lw_guard pr-visual-report.sh "$LM" "cd ../main-wt/feat-ui-cd-guard && gh pr create --base master --body-file body.md")"
 check "pr-visual-report allows the documented cd <wt> && gh pr create --head form" test -z "$(lw_guard pr-visual-report.sh "$LM" "cd $LT && gh pr create --base master --head feat/ui-cd-guard --body-file body.md")"
 
 # ship-init archives a stale log under a reused slug; the exclude append keeps the last line intact

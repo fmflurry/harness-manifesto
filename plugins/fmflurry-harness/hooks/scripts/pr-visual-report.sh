@@ -283,7 +283,7 @@ take_body_flags() {
     return 1
   fi
   # The body file is read where the command runs; the checks read the PR head's registered worktree when --head names one.
-  [ "$CMD_DIR" != "?" ] || { say "pr-visual-report: cannot tell which checkout this PR command runs in; run it from the checkout (or one plain cd <absolute path> &&) without pushd, popd, cd -, ~ or ||"; return 1; }
+  [ "$CMD_DIR" != "?" ] || { say "pr-visual-report: cannot tell which checkout this PR command runs in; run it from the checkout, or prefix exactly one cd <absolute path> && (no CDPATH, pushd, popd, cd -, ~, || or bare relative path)"; return 1; }
   check_dir="$CMD_DIR"
   if [ -n "$PR_HEAD" ]; then check_dir="$(goal_branch_worktree "$CMD_DIR" "${PR_HEAD#*:}" 2>/dev/null)" || check_dir="$CMD_DIR"; fi
   if [ "$KIND" = file ]; then
@@ -339,12 +339,16 @@ resolve_cmd_dir() {
     esac
   done
   [ "$cds" -gt 0 ] || return 0
-  while [ "$j" -lt "$n" ] && [[ "${TOKENS[$j]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do j=$((j + 1)); done
+  while [ "$j" -lt "$n" ] && [[ "${TOKENS[$j]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do
+    [[ "${TOKENS[$j]}" != CDPATH=* ]] || { CMD_DIR="?"; return 0; }
+    j=$((j + 1))
+  done
   d="${TOKENS[$((j + 1))]:-}" t="${TOKENS[$((j + 3))]:-}"
   CMD_DIR="?"
   [ "$cds" -eq 1 ] && [ "${TOKENS[$j]}" = cd ] && [ "${TOKENS[$((j + 2))]:-}" = "&&" ] || return 0
   [ "${t##*/}" = gh ] || [[ "${t##*/}" == gh-* ]] || return 0
-  case "$d" in '' | -* | \~* | *'$'*) return 0 ;; /*) ;; *) d="$HOOK_CWD/$d" ;; esac
+  # bash resolves any other relative target through CDPATH (possibly exported), which the hook cannot see.
+  case "$d" in *'$'*) return 0 ;; /*) ;; ./* | ../* | . | ..) d="$HOOK_CWD/$d" ;; *) return 0 ;; esac
   d="$(cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && CMD_DIR="$d"
   return 0
 }
