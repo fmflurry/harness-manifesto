@@ -5,6 +5,8 @@
 # A docs typo or a version bump only may pass with a checked Skip line and a reason.
 set -f
 VISUAL_ALLOW_RELATIVE=0
+# shellcheck source=goal-state.sh
+. "${BASH_SOURCE[0]%/*}/goal-state.sh" 2>/dev/null || true
 
 say() { REASON="$1"; printf '%s\n' "$1" >&2; }
 
@@ -86,7 +88,7 @@ provenance_merge_ok() {
   done
   [ -n "$method" ] || { say "pr-provenance: choose --rebase or --merge, or use agent-harness ship-merge for squash"; return 1; }
   [ "$next" = 0 ] && [[ "$expected" =~ ^[a-f0-9]{40,64}$ ]] || { say "pr-provenance: merge requires --match-head-commit with the current PR head SHA"; return 1; }
-  output="$(cd "$HOOK_CWD" && HARNESS_GH_COMMAND="$PROVENANCE_GH" node "$helper" merge "$ref" "$expected" 2>&1)" && return 0
+  output="$(cd "${CMD_DIR:-$HOOK_CWD}" && HARNESS_GH_COMMAND="$PROVENANCE_GH" node "$helper" merge "$ref" "$expected" 2>&1)" && return 0
   say "$output"
   return 1
 }
@@ -234,9 +236,10 @@ is_sep() {
 
 # Last matching flag wins. mode is required or optional.
 take_body_flags() {
-  local mode="$1" i=0 a
+  local mode="$1" i=0 a check_dir
   shift
   PR_PROVENANCE_BASE=""
+  PR_HEAD=""
   KIND=""
   PAYLOAD=""
   while [ "$i" -lt "$#" ]; do
@@ -245,6 +248,9 @@ take_body_flags() {
       --base|-B)
         i=$((i + 1)); PR_PROVENANCE_BASE="${*:$((i + 1)):1}" ;;
       --base=*) PR_PROVENANCE_BASE="${a#*=}" ;;
+      --head|-H)
+        i=$((i + 1)); PR_HEAD="${*:$((i + 1)):1}" ;;
+      --head=*) PR_HEAD="${a#*=}" ;;
       --body-file|-F|--description-file)
         i=$((i + 1))
         a="${*:$((i + 1)):1}"
@@ -275,14 +281,17 @@ take_body_flags() {
     say "pr-visual-report: pass the PR body with --body-file or a single quoted --body (or --description)"
     return 1
   fi
+  # The body file is read where the command runs; the checks read the PR head's registered worktree when --head names one.
+  check_dir="$CMD_DIR"
+  if [ -n "$PR_HEAD" ]; then check_dir="$(goal_branch_worktree "$CMD_DIR" "${PR_HEAD#*:}" 2>/dev/null)" || check_dir="$CMD_DIR"; fi
   if [ "$KIND" = file ]; then
-    read_body_file "$PAYLOAD" "$HOOK_CWD" || return 1
+    read_body_file "$PAYLOAD" "$CMD_DIR" || return 1
   else
     BODY="$PAYLOAD"
   fi
   visual_ok "$BODY" || return 1
-  memory_ok "$BODY" "$HOOK_CWD" || return 1
-  provenance_ok "$BODY" "$HOOK_CWD" || return 1
+  memory_ok "$BODY" "$check_dir" || return 1
+  provenance_ok "$BODY" "$check_dir" || return 1
   metrics_warn "$BODY"
 }
 
@@ -314,7 +323,8 @@ args_until_sep() {
 }
 
 inspect() {
-  local i=0 n=${#TOKENS[@]} cmdpos=1 t base
+  local i=0 n=${#TOKENS[@]} cmdpos=1 t base d
+  CMD_DIR="$HOOK_CWD"
   while [ "$i" -lt "$n" ]; do
     t="${TOKENS[$i]}"
     if is_sep "$t"; then cmdpos=1; i=$((i + 1)); continue; fi
@@ -324,8 +334,13 @@ inspect() {
       if [ "$base" = "command" ] || [ "$base" = "env" ] || [ "$base" = "time" ]; then
         i=$((i + 1)); continue
       fi
+      # A cd earlier in the chain moves the checkout the PR commands below act on.
+      if [ "$base" = "cd" ]; then
+        d="${TOKENS[$((i + 1))]:-}"
+        case "$d" in /*) ;; *) d="$CMD_DIR/$d" ;; esac
+        d="$(cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && CMD_DIR="$d"
       # gh-* covers token wrappers such as gh-isag that exec gh.
-      if [ "$base" = "gh" ] || [[ "$base" == gh-* ]]; then
+      elif [ "$base" = "gh" ] || [[ "$base" == gh-* ]]; then
         PROVENANCE_GH="$t"
         skip_flags $((i + 1))
         if [ "${TOKENS[$SKIP_AT]:-}" = "pr" ]; then

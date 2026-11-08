@@ -1,7 +1,7 @@
 #!/bin/bash -p
 # shellcheck disable=SC2016
 # teardown-merged-worktree.sh <pr> [--keep-branch]: remove the registered worktree of a merged PR, then its remote and
-# local branch. Every check fails closed.
+# local branch, and archive the goal's decision log (through cleanup.sh). Every check fails closed.
 # Exit: 0 done | 1 STOP or partial result (registry kept as merged) | 2 usage | 3 no registered worktree | 4 removal failed
 set -euo pipefail
 # shellcheck source=scripts/agent-harness/lib.sh

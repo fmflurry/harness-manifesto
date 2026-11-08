@@ -2,6 +2,11 @@
 
 Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cursor-plugin/config.json` and is copied into `.cursor-plugin/plugin.json` by `node scripts/build-cursor-plugin.mjs`.
 
+## [0.4.39] - 2026-11-08
+
+- Each goal keeps its own decision log at `.claude/state/decisions/<slug>.tsv` (`agent-harness goal decisions-path` prints it); `ship-init` creates it and the post-merge cleanup archives it to `decisions/archive/`. The autonomy hooks name that path.
+- The PR body guard and the push and `gh pr create` review gates read the checkout the command runs in (`cd <dir> &&`, `git -C`, or `gh pr create --head <branch>` mapped to its registered goal worktree), not the session's checkout.
+
 ## [0.4.38] - 2026-11-07
 
 - Post-merge teardown consults Orca only for goals created via Orca. A goal created via git no longer stops when the Orca app is not running; it is removed through git.

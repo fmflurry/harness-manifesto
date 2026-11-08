@@ -8,7 +8,7 @@ import { emitKpi } from "./lib/kpi-emit.ts";
 const AUTONOMY_FLAG = ".claude/state/autonomy.on";
 const NOTIFY_SCRIPT = path.join(os.homedir(), ".config/opencode/scripts/agent-harness/notify.sh");
 const ASK_DENIED =
-  "Autonomous mode: decide yourself, log the assumption to .claude/state/decisions.tsv, continue.";
+  "Autonomous mode: decide yourself, log the assumption to the file `agent-harness goal decisions-path` prints, continue.";
 
 export const AutonomyPlugin = async ({ $, client, directory }: PluginInput) => {
   const autonomyOn = (): boolean => fs.existsSync(path.join(directory, AUTONOMY_FLAG));

@@ -146,6 +146,17 @@ AUTO=0
 . "${BASH_SOURCE[0]%/*}/goal-state.sh"
 goal_scope_select "${CLAUDE_PROJECT_DIR:-$cwd}" "$cwd"
 goal_bind_file "$STATE_DIR"
+SESSION_REPO="$GS_REPO" SESSION_GOAL_FILE="$GOAL_FILE"
+
+# goal_for_dir <dir>: bind GOAL_FILE to the checkout a command runs in (after cd or git -C) when that checkout is a
+# worktree of the session's repository, so each goal's own reviews gate its push. Otherwise keep the session's goal.
+goal_for_dir() {
+  GOAL_FILE="$SESSION_GOAL_FILE"
+  [ -n "$1" ] && [ "$1" != "?" ] && [ -d "$1" ] && [ -n "$SESSION_REPO" ] || return 0
+  goal_scope_resolve "$1"
+  [ "${GS_KIND:-none}" != none ] && [ "$GS_REPO" = "$SESSION_REPO" ] || { GOAL_FILE="$SESSION_GOAL_FILE"; return 0; }
+  goal_bind_file "$STATE_DIR"
+}
 
 CONFIG_FILE="$ROOT/.claude/agent-harness.json"
 cfg() { [ -f "$CONFIG_FILE" ] || return 0; jqr "$1" "$CONFIG_FILE" 2>/dev/null || true; }
@@ -427,6 +438,14 @@ redirected_push() {
 
 # Pushes of backup/* refs are the safety net before a rewrite and are never gated.
 push_gate() {
+  local rc=0
+  goal_for_dir "$1"
+  push_gate_goal "$@" || rc=$?
+  GOAL_FILE="$SESSION_GOAL_FILE"
+  return "$rc"
+}
+
+push_gate_goal() {
   local gd="$1" a src dst; shift
   local -a srcs=()
   gate_on || return 0
@@ -596,13 +615,25 @@ gh_has() {
 check_gh() {
   local line="$*" t method=0
   gh_has ' pr( .*)? merge( |$)' && deny
-  if gh_has ' pr( .*)? (create|new)( |$)' && gate_on; then
-    gh_has ' (--head|-H)' && deny_review "gh pr create --head/-H can publish a branch other than the reviewed one: run it from the goal worktree without them."
-    local gd="$cwd"
+  if gh_has ' pr( .*)? (create|new)( |$)'; then
+    local gd="$cwd" head="" hd="" prev=""
     cd_sync
     [ -n "${CD_BASE:-}" ] && gd="$CD_BASE"
-    GIT_LOC=(); SAW_LOC=0
-    review_gate "$gd"
+    for t in "$@"; do
+      case "$prev" in --head | -H) head="$t" ;; esac
+      case "$t" in --head=*) head="${t#*=}" ;; esac
+      prev="$t"
+    done
+    # --head names a branch; only its registered goal worktree proves which reviewed diff it carries.
+    [ -z "$head" ] || [ "$gd" = "?" ] || hd="$(goal_branch_worktree "$gd" "${head#*:}")" || hd=""
+    [ -z "$hd" ] || gd="$hd"
+    goal_for_dir "$gd"
+    if gate_on; then
+      gh_has ' (--head|-H)' && [ -z "$hd" ] && deny_review "gh pr create --head/-H can publish a branch other than the reviewed one: run it from the goal worktree without them, or name a branch whose registered goal worktree has it checked out."
+      GIT_LOC=(); SAW_LOC=0
+      review_gate "$gd"
+    fi
+    GOAL_FILE="$SESSION_GOAL_FILE"
   fi
   gh_has ' api( |$)' || return 0
   gh_has 'pulls/[0-9]+/merge|mergePullRequest|repos/[^ ]*/merges|query=@' && deny
@@ -1953,6 +1984,8 @@ SR_CD=""
 pushfast=1
 case "$BASE_A$BASE_B" in *\\* | *\"* | *\'* | *$'\n'*) pushfast=0 ;; esac
 gate_on && pushfast=0
+# A push run in another goal worktree (cd, git -C) is gated by that worktree's goal, so no fast path while any goal exists.
+[ "$AUTO" = 1 ] && [ -d "$STATE_DIR/goals" ] && pushfast=0
 merged=0
 if [[ "$cmd" != *\\* ]]; then
   # One awk pass yields the quote-aware scan and the legacy segments. Splits stay outside quotes,
