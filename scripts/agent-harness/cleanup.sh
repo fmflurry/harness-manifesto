@@ -121,14 +121,21 @@ if [ -n "$bsrc" ]; then
     btip="$(g rev-parse "refs/heads/$b")"
     if g merge-base --is-ancestor "$btip" "$oid" 2>/dev/null || g merge-base --is-ancestor "$btip" "origin/$base" 2>/dev/null; then
       if g branch -D "$b" >/dev/null 2>&1; then say "backup $b deleted"; done_b+=("$b"); else say "backup $b kept (delete failed)"; fi
-    elif g update-ref "refs/harness/backups/${b#backup/}" "$btip" && g branch -D "$b" >/dev/null 2>&1; then
-      say "backup $b archived to refs/harness/backups/${b#backup/}"; done_b+=("$b")
-    else say "backup $b kept (archive failed)"; fi
+    else
+      aref="refs/harness/backups/${b#backup/}"
+      have="$(g rev-parse -q --verify "$aref" 2>/dev/null || true)"
+      # refs/harness has no reflog: never move an existing archive. The empty old value makes update-ref create-only.
+      if [ -n "$have" ] && [ "$have" != "$btip" ]; then say "backup $b kept (archive name $aref is taken)"; continue; fi
+      if [ -z "$have" ] && ! g update-ref "$aref" "$btip" ""; then say "backup $b kept (archive failed)"; continue; fi
+      if g branch -D "$b" >/dev/null 2>&1; then say "backup $b archived to $aref"; done_b+=("$b")
+      else say "backup $b archived to $aref; branch kept (delete failed)"; fi
+    fi
   done <<<"$blist"
   if [ "${#done_b[@]}" -gt 0 ]; then
     d="$(printf '%s\n' "${done_b[@]}" | jq -R . | jq -sc .)"
-    if [ "$bsrc" = goal ]; then goal_update --argjson d "$d" '.backup_branches = ((.backup_branches // []) - $d)'
-    else reg_update "$bslug" --argjson d "$d" '.backup_branches = ((.backup_branches // []) - $d)' || true; fi
+    [ "$bsrc" != goal ] || goal_update --argjson d "$d" '.backup_branches = ((.backup_branches // []) - $d)'
+    [ -n "$bslug" ] || bslug="$(reg_find_by_pr "$pr" 2>/dev/null)" || bslug=""
+    [ -z "$bslug" ] || reg_update "$bslug" --argjson d "$d" '.backup_branches = ((.backup_branches // []) - $d)' || true
   fi
 fi
 

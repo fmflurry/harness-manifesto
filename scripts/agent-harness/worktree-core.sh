@@ -64,7 +64,7 @@ wt_remove() {
     if [ "$ostate" = managed ]; then orca_list_all >/dev/null 2>&1 || stop activity "orca worktree list unreadable"; fi
     if [ "$ostate" = offline ]; then
       # With the Orca app closed nothing in Orca can be active; a process still running in the worktree can be.
-      users="$(cwd_users "$T")" || stop activity "orca app not running and lsof is missing"
+      users="$(cwd_users "$T")" || stop activity "orca app not running and lsof cannot list working directories"
       [ -z "$users" ] || stop activity "orca app not running but pid $(paste -sd, - <<<"$users") runs in $T"
     fi
   fi

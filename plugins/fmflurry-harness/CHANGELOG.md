@@ -4,8 +4,8 @@ Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cur
 
 ## [0.4.40] - 2026-11-08
 
-- Post-merge cleanup reads a goal's backup branches from its registry entry when the worktree is already gone (`goal backup-add` now mirrors them there). A backup that is not an ancestor of the merged head, which is every pre-rebase snapshot after a squash merge, is moved to `refs/harness/backups/<name>` instead of staying a branch.
-- `worktree-rm` no longer stops when the Orca app is not running (`runtime_unavailable`). It checks instead that no process has its working directory inside the worktree, and stops when it cannot tell (no `lsof`). A goal created via Orca still needs the app for teardown.
+- Post-merge cleanup reads a goal's backup branches from its registry entry when the worktree is already gone (`goal backup-add` now mirrors them there). A backup that is not an ancestor of the merged head, which is every pre-rebase snapshot after a squash merge, is moved to `refs/harness/backups/<name>` instead of staying a branch. An archive ref is never moved: a taken name keeps the branch.
+- `worktree-rm` no longer stops when the Orca app is not running (`runtime_unavailable`). It checks instead that no process has its working directory inside the worktree, and stops when it cannot tell (no `lsof`, or an `lsof` that cannot see the calling shell). A goal created via Orca still needs the app for teardown.
 
 ## [0.4.39] - 2026-11-08
 

@@ -185,8 +185,9 @@ orca_state() {
   local main out q paths
   command -v "$ORCA" >/dev/null 2>&1 || { echo absent; return 0; }
   main="$(main_checkout)" || { echo error; return 0; }
-  if ! out="$("$ORCA" repo list --json 2>/dev/null)"; then
-    if [ "$(jq -r '.error.code? // empty' <<<"$out" 2>/dev/null)" = runtime_unavailable ]; then echo offline; else echo error; fi
+  if ! out="$("$ORCA" repo list --json 2>&1)"; then
+    # The CLI prints the runtime_unavailable JSON on stdout or stderr depending on the version: read both.
+    if [ "$(jq -sr 'map(.error.code? // empty) | first // empty' <<<"$out" 2>/dev/null)" = runtime_unavailable ]; then echo offline; else echo error; fi
     return 0
   fi
   paths="$(jq -r '.. | objects | .path? | strings' <<<"$out" 2>/dev/null)" || { echo error; return 0; }
@@ -198,11 +199,14 @@ orca_state() {
 }
 orca_managed() { [ "$(orca_state)" = managed ]; }
 
-# cwd_users <dir>: prints the pids whose working directory is <dir> or below it; fails when lsof is missing.
+# cwd_users <dir>: prints the pids whose working directory is <dir> or below it. Fails closed: when lsof is missing
+# or cannot see this shell's own process, an empty answer proves nothing.
 cwd_users() {
+  local out
   command -v lsof >/dev/null 2>&1 || return 1
-  lsof -a -d cwd -F pn 2>/dev/null | awk -v t="$1" '/^p/ { pid = substr($0, 2) } /^n/ { d = substr($0, 2); if (d == t || index(d, t "/") == 1) print pid }'
-  return 0
+  out="$(lsof -b -w -a -d cwd -F pn 2>/dev/null)" || [ -n "$out" ] || return 1
+  grep -qx "p$$" <<<"$out" || return 1
+  awk -v t="$1" '/^p/ { pid = substr($0, 2) } /^n/ { d = substr($0, 2); if (d == t || index(d, t "/") == 1) print pid }' <<<"$out"
 }
 
 orca_worktrees() { "$ORCA" worktree list --repo "path:$(main_checkout)" --json; }

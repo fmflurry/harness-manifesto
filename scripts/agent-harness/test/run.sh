@@ -718,6 +718,16 @@ check "cleanup unmerged backup: unmerged backup leaves the branch list" bash -c 
 check "cleanup unmerged backup: archived ref keeps its tip" test "$(git -C "$TMP/work" rev-parse -q --verify refs/harness/backups/unmerged)" = "$UNM"
 check "cleanup unmerged backup: reports archived" grep -q '^cleanup: backup backup/unmerged archived to refs/harness/backups/unmerged' "$FX/out"
 check "cleanup unmerged backup: recorded list emptied" test "$(jq -c '.backup_branches' "$CG")" = "[]"
+git -C "$TMP/work" checkout -q -b backup/unmerged && ( cd "$TMP/work" && echo v >v && git add v && git commit -qm V ) >/dev/null 2>&1
+# The goal state is keyed by branch: be back on feat (deleted by the first cleanup) so the goal tracks PR 5.
+UNM2="$(git -C "$TMP/work" rev-parse HEAD)"; git -C "$TMP/work" checkout -q -B feat master
+jq '.backup_branches=["backup/unmerged"]' "$CG" >"$FX/t" && mv "$FX/t" "$CG"
+cleanup 5; rc=$?
+check "cleanup archive name taken: exits 0" test $rc -eq 0
+check "cleanup archive name taken: first archive kept" test "$(git -C "$TMP/work" rev-parse -q --verify refs/harness/backups/unmerged)" = "$UNM"
+check "cleanup archive name taken: second branch kept" test "$(git -C "$TMP/work" rev-parse -q --verify refs/heads/backup/unmerged)" = "$UNM2"
+check "cleanup archive name taken: says so" grep -q '^cleanup: backup backup/unmerged kept (archive name refs/harness/backups/unmerged is taken)' "$FX/out"
+git -C "$TMP/work" branch -q -D backup/unmerged
 
 cfresh; mutate '.state="OPEN"' view.json; cleanup 5; rc=$?
 check "cleanup not merged: refused" test $rc -eq 1
@@ -2057,8 +2067,11 @@ if command -v lsof >/dev/null 2>&1; then
   wtfx; : >"$FX/orca_repo_offline"; ( cd "$WT" && exec sleep 30 ) & held=$!; sleep 1
   out="$(wtrm "$WT" --confirmed 2>&1)"; rc=$?; kill "$held" 2>/dev/null; wait "$held" 2>/dev/null
   check "worktree-rm: orca app not running but a process runs in the worktree is a STOP" test "$rc|$(grep -c "runs in" <<<"$out")|$(test -d "$WT" && echo kept)" = "1|1|kept"
+  mkdir -p "$TMP/blindlsof"; printf '#!/bin/sh\nexit 0\n' >"$TMP/blindlsof/lsof"; chmod +x "$TMP/blindlsof/lsof"
+  wtfx; : >"$FX/orca_repo_offline"; out="$(PATH="$TMP/blindlsof:$PATH" wtrm "$WT" --confirmed 2>&1)"; rc=$?
+  check "worktree-rm: orca app not running and a blind lsof is a STOP" test "$rc|$(grep -c 'lsof cannot list working directories' <<<"$out")|$(test -d "$WT" && echo kept)" = "1|1|kept"
 else
-  check "worktree-rm: orca app not running without lsof is a STOP" test "$rc|$(grep -c 'lsof is missing' <<<"$out")|$(test -d "$WT" && echo kept)" = "1|1|kept"
+  check "worktree-rm: orca app not running without lsof is a STOP" test "$rc|$(grep -c 'lsof cannot list working directories' <<<"$out")|$(test -d "$WT" && echo kept)" = "1|1|kept"
 fi
 wtfx; : >"$FX/orca_repo_managed"; : >"$FX/orca_wt_fail"; out="$(wtrm "$WT" --confirmed 2>&1)"; rc=$?
 check "worktree-rm: a managed repo with an unreadable worktree list is a STOP" test "$rc|$(grep -c 'check activity STOP (orca worktree list unreadable)' <<<"$out")|$(test -d "$WT" && echo kept)" = "1|1|kept"
@@ -2422,11 +2435,14 @@ check "teardown via git, orca repo list unreadable: registry removed" test ! -e 
 check "teardown via git: never calls orca" test ! -e "$FX/orca.log"
 lw_td git; snap="$(git -C "$LM" commit-tree "$(git -C "$LM" rev-parse 'master^{tree}')" -p master -m snap)"
 git -C "$LM" branch -q backup/td-x "$snap"; LCWD="$T" LH goal backup-add backup/td-x >/dev/null 2>&1
-check "goal backup-add mirrors the backup into the registry" test "$(lreg feat-td-x '.backup_branches | join(",")')" = backup/td-x
+git -C "$LM" branch -q backup/td-anc master; LCWD="$T" LH goal backup-add backup/td-anc >/dev/null 2>&1
+check "goal backup-add mirrors the backup into the registry" test "$(lreg feat-td-x '.backup_branches | join(",")')" = backup/td-anc,backup/td-x
 lw_td_run 5; rc=$?
 check "teardown after a squash merge: exits 0" test $rc -eq 0
 check "teardown after a squash merge: registered backup leaves the branch list" bash -c '! git -C "$1" show-ref --verify --quiet refs/heads/backup/td-x' _ "$LM"
 check "teardown after a squash merge: backup archived with its tip" test "$(git -C "$LM" rev-parse -q --verify refs/harness/backups/td-x)" = "$snap"
+check "teardown after a squash merge: registry-listed ancestor backup deleted" bash -c '! git -C "$1" show-ref --verify --quiet refs/heads/backup/td-anc' _ "$LM"
+check "teardown after a squash merge: ancestor backup reported deleted" grep -q '^cleanup: backup backup/td-anc deleted' "$FX/out"
 lw_td git; lw_td_run 6; rc=$?
 check "teardown with no registered worktree: exits 3" test $rc -eq 3
 check "teardown with no registered worktree: says so" grep -q 'no registered worktree for PR 6' "$FX/out"
