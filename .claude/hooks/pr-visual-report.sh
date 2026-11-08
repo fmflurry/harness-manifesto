@@ -324,34 +324,50 @@ args_until_sep() {
   done
 }
 
-inspect() {
-  local i=0 n=${#TOKENS[@]} cmdpos=1 t base d sep=""
+# Sets CMD_DIR, the checkout the PR command runs in. Allow-list: the session cwd, or exactly one leading
+# `[VAR=...] cd <dir> && gh ...`. Any other cd, or a word that can change directory out of sight
+# (eval, exec, source, builtin, pushd, popd; a \cd already fails tokenize), makes it unknown ("?").
+resolve_cmd_dir() {
+  local i=0 j=0 n=${#TOKENS[@]} t cds=0 d
   CMD_DIR="$HOOK_CWD"
+  for ((i = 0; i < n; i++)); do
+    t="${TOKENS[$i]}"
+    case "${t##*/}" in
+      cd) cds=$((cds + 1)) ;;
+      eval | exec | source | builtin | pushd | popd) CMD_DIR="?"; return 0 ;;
+      .) if [ "$i" -eq 0 ] || is_sep "${TOKENS[$((i - 1))]}"; then CMD_DIR="?"; return 0; fi ;;
+    esac
+  done
+  [ "$cds" -gt 0 ] || return 0
+  while [ "$j" -lt "$n" ] && [[ "${TOKENS[$j]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do j=$((j + 1)); done
+  d="${TOKENS[$((j + 1))]:-}" t="${TOKENS[$((j + 3))]:-}"
+  CMD_DIR="?"
+  [ "$cds" -eq 1 ] && [ "${TOKENS[$j]}" = cd ] && [ "${TOKENS[$((j + 2))]:-}" = "&&" ] || return 0
+  [ "${t##*/}" = gh ] || [[ "${t##*/}" == gh-* ]] || return 0
+  case "$d" in '' | -* | \~* | *'$'*) return 0 ;; /*) ;; *) d="$HOOK_CWD/$d" ;; esac
+  d="$(cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && CMD_DIR="$d"
+  return 0
+}
+
+inspect() {
+  local i=0 n=${#TOKENS[@]} cmdpos=1 t base
+  REACHED=0
+  resolve_cmd_dir
   while [ "$i" -lt "$n" ]; do
     t="${TOKENS[$i]}"
-    if is_sep "$t"; then cmdpos=1; sep="$t"; i=$((i + 1)); continue; fi
+    if is_sep "$t"; then cmdpos=1; i=$((i + 1)); continue; fi
     if [ "$cmdpos" -eq 1 ]; then
       if [[ "$t" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then i=$((i + 1)); continue; fi
       base="${t##*/}"
       if [ "$base" = "command" ] || [ "$base" = "env" ] || [ "$base" = "time" ]; then
         i=$((i + 1)); continue
       fi
-      # A cd earlier in the chain moves the checkout the PR commands below act on. Any cd the hook cannot follow
-      # (no word, a flag, ~, $, a missing path, after ||, pushd/popd/builtin) makes the checkout unknown: fail closed.
-      if [ "$base" = "cd" ]; then
-        d="${TOKENS[$((i + 1))]:-}"
-        if [ "$CMD_DIR" = "?" ] || [ "$sep" = "||" ] || [ "$sep" = "|" ] || [ "$sep" = "&" ] || [ -z "$d" ] || is_sep "$d"; then CMD_DIR="?"
-        else
-          case "$d" in -* | \~* | *'$'*) CMD_DIR="?" ;; /*) ;; *) d="$CMD_DIR/$d" ;; esac
-          if [ "$CMD_DIR" != "?" ]; then d="$(cd "$d" 2>/dev/null && pwd -P)" && [ -n "$d" ] && CMD_DIR="$d" || CMD_DIR="?"; fi
-        fi
-      elif [ "$base" = "pushd" ] || [ "$base" = "popd" ] || [ "$base" = "builtin" ]; then
-        CMD_DIR="?"
       # gh-* covers token wrappers such as gh-isag that exec gh.
-      elif [ "$base" = "gh" ] || [[ "$base" == gh-* ]]; then
+      if [ "$base" = "gh" ] || [[ "$base" == gh-* ]]; then
         PROVENANCE_GH="$t"
         skip_flags $((i + 1))
         if [ "${TOKENS[$SKIP_AT]:-}" = "pr" ]; then
+          case "${TOKENS[$((SKIP_AT + 1))]:-}" in create | new | edit) REACHED=$((REACHED + 1)) ;; esac
           case "${TOKENS[$((SKIP_AT + 1))]:-}" in
             create|new)
               args_until_sep $((SKIP_AT + 2))
@@ -443,13 +459,24 @@ cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null |
 HOOK_CWD="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null || true)"
 [ -n "$HOOK_CWD" ] || HOOK_CWD="${PWD}"
 
+count_prs() { grep -oE '(^|[^[:alnum:]_.-])gh(-[[:alnum:]_-]+)?[[:space:]]+pr[[:space:]]+(create|new|edit)([^[:alnum:]_]|$)' | wc -l | tr -d ' '; }
+# Unquoted mentions always count; quoted ones count when a word in the line can run a string as a command.
+RAW_PRS="$(printf '%s\n' "$cmd" | sed -e "s/'[^']*'//g" -e 's/"[^"]*"//g' | count_prs)"
+if printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|fish|eval|exec|xargs|env|sudo|su|nohup|timeout|ssh|script|watch|parallel)([^[:alnum:]_.-]|$)'; then
+  RAW_PRS="$(printf '%s\n' "$cmd" | count_prs)"
+fi
 if ! tokenize "$cmd"; then
-  if looks_like_pr "$cmd"; then
+  if looks_like_pr "$cmd" || [ "${RAW_PRS:-0}" -gt 0 ]; then
     emit_deny "pr-visual-report: cannot read the PR body (substitution or expansion). Pass --body-file or a single quoted --body."
   fi
   exit 0
 fi
 if ! inspect; then
   emit_deny "${REASON:-pr-visual-report: PR body failed the Visual report check}"
+fi
+# A gh pr create/new/edit the parser did not reach in command position (sh -c, env -C, xargs, if/then, a brace
+# group, a newline-separated script) escapes the checks above: fail closed.
+if [ "${RAW_PRS:-0}" -gt "${REACHED:-0}" ]; then
+  emit_deny "pr-visual-report: run gh pr create/edit directly (optionally after one cd <dir> &&), not through sh -c, env, xargs, exec, if/then, a brace group or a multi-line script."
 fi
 exit 0

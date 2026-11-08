@@ -623,7 +623,7 @@ check_gh() {
     [ -n "${CD_BASE:-}" ] && gd="$CD_BASE"
     for t in "$@"; do
       case "$prev" in --head | -H) head="$t" ;; --repo | -R) repo="$t" ;; esac
-      case "$t" in --head=*) head="${t#*=}" ;; --repo=*) repo="${t#*=}" ;; esac
+      case "$t" in --head=*) head="${t#*=}" ;; --repo=*) repo="${t#*=}" ;; -R?*) repo="${t#-R}" ;; esac
       prev="$t"
     done
     if gate_on || { goal_for_dir "$gd"; gate_on; }; then

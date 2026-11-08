@@ -114,7 +114,7 @@ exclude_state_dir
 log="$(goal_decisions_path "$STATE_DIR")"
 mkdir -p "$(dirname "$log")"
 # The slug was free (checked above), so a log left under it belongs to an earlier goal: keep that trail in the archive.
-[ ! -s "$log" ] || decisions_archive "$slug" >&2
+[ ! -s "$log" ] || decisions_archive "$slug" >&2 || true
 [ -s "$log" ] || printf 'ts\tphase\tdecision\twhy\tevidence\tresult\n' >"$log"
 bash -p "$HARNESS_DIR/ado-state.sh" start "$branch" "$goal" || true
 echo "$path"
