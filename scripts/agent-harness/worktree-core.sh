@@ -56,14 +56,19 @@ wt_remove() {
     else stop ahead "$ahead commits not on origin/$base"; fi
   fi
 
-  use_orca=0
+  use_orca=0 ostate=""
   if [ "$MODE" = teardown ]; then olist_cmd=orca_worktrees; else
     olist_cmd=orca_list_all
     ostate="$(orca_state)"
     [ "$ostate" != error ] || stop activity "orca state unreadable"
     if [ "$ostate" = managed ]; then orca_list_all >/dev/null 2>&1 || stop activity "orca worktree list unreadable"; fi
+    if [ "$ostate" = offline ]; then
+      # With the Orca app closed nothing in Orca can be active; a process still running in the worktree can be.
+      users="$(cwd_users "$T")" || stop activity "orca app not running and lsof is missing"
+      [ -z "$users" ] || stop activity "orca app not running but pid $(paste -sd, - <<<"$users") runs in $T"
+    fi
   fi
-  if command -v "$ORCA" >/dev/null 2>&1 && { [ "$MODE" != teardown ] || { [ "${WT_VIA:-}" = orca ] && orca_managed; }; } && olist="$($olist_cmd 2>/dev/null)"; then
+  if [ "$ostate" != offline ] && command -v "$ORCA" >/dev/null 2>&1 && { [ "$MODE" != teardown ] || { [ "${WT_VIA:-}" = orca ] && orca_managed; }; } && olist="$($olist_cmd 2>/dev/null)"; then
     command -v jq >/dev/null 2>&1 || stop activity "activity unknown (jq missing)"
     last="" unk=""
     while IFS=$'\t' read -r q ts; do
@@ -81,6 +86,7 @@ wt_remove() {
     if [ "$last" -gt $(( now_ms - idle_min * 60000 )) ]; then stop activity "active within ${idle_min} min"; fi
     ok activity "idle over ${idle_min} min"
   elif [ "$MODE" = teardown ] && [ "${WT_VIA:-}" = orca ] && orca_managed; then stop activity "orca does not list $T"
+  elif [ "$MODE" = rm ] && [ "$ostate" = offline ]; then ok activity "orca app not running, no process in $T"
   elif [ "$MODE" = rm ]; then echo "$PFX: check activity skipped (not Orca-managed)"; fi
 
   wait_s=60 settle_s=20

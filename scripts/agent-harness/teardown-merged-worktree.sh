@@ -50,6 +50,7 @@ esac
 if [ "$via" = orca ]; then
   ostate="$(orca_state)"
   [ "$ostate" != error ] || stop "orca is installed but its repo list is unreadable"
+  [ "$ostate" != offline ] || stop "the goal was created via orca but the Orca app is not running; start it and rerun"
   if [ "$ostate" != managed ] && [[ "$(realp "$recorded")" == */orca/workspaces/* ]]; then stop "$recorded is under an Orca workspace but the repo is not Orca-managed"; fi
 elif [[ "$(realp "$recorded")" == */orca/workspaces/* ]]; then stop "$recorded is under an Orca workspace but the goal was not created via orca"; fi
 WT_VIA="$via"

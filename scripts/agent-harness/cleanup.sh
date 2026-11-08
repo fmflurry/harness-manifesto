@@ -105,21 +105,30 @@ if [ -z "$keep" ] && [ "$branch" != "$current" ] && g show-ref --verify --quiet 
   fi
 fi
 
-if [ "$(goal_get '.pr // empty')" = "$pr" ]; then
-  deleted=()
+# Backups come from the goal file when it tracks this PR, else from the registry entry (the worktree may be gone).
+# A backup merged by ancestry is deleted. After a squash merge no pre-rebase snapshot is an ancestor, so the
+# others are archived under refs/harness/backups/: gone from the branch list, still recoverable.
+bsrc="" bslug=""
+if [ "$(goal_get '.pr // empty')" = "$pr" ]; then bsrc=goal
+elif bslug="$(reg_find_by_pr "$pr" 2>/dev/null)"; then bsrc=reg; fi
+if [ -n "$bsrc" ]; then
+  done_b=()
+  if [ "$bsrc" = goal ]; then blist="$(goal_get '(.backup_branches // [])[]')"; else blist="$(reg_get "$bslug" '(.backup_branches // [])[]')"; fi
   while IFS= read -r b; do
     [[ "$b" =~ ^backup/[a-z0-9]+(-[a-z0-9]+)*$ ]] || continue
     { [ "$b" != "$base" ] && [ "$b" != "$current" ]; } || continue
     g show-ref --verify --quiet "refs/heads/$b" || continue
     btip="$(g rev-parse "refs/heads/$b")"
-    if ! g merge-base --is-ancestor "$btip" "$oid" 2>/dev/null && ! g merge-base --is-ancestor "$btip" "origin/$base" 2>/dev/null; then
-      say "backup $b kept (not merged)"; continue
-    fi
-    if g branch -D "$b" >/dev/null 2>&1; then say "backup $b deleted"; deleted+=("$b"); else say "backup $b kept (delete failed)"; fi
-  done < <(goal_get '(.backup_branches // [])[]')
-  if [ "${#deleted[@]}" -gt 0 ]; then
-    goal_update --argjson d "$(printf '%s\n' "${deleted[@]}" | jq -R . | jq -sc .)" \
-      '.backup_branches = ((.backup_branches // []) - $d)'
+    if g merge-base --is-ancestor "$btip" "$oid" 2>/dev/null || g merge-base --is-ancestor "$btip" "origin/$base" 2>/dev/null; then
+      if g branch -D "$b" >/dev/null 2>&1; then say "backup $b deleted"; done_b+=("$b"); else say "backup $b kept (delete failed)"; fi
+    elif g update-ref "refs/harness/backups/${b#backup/}" "$btip" && g branch -D "$b" >/dev/null 2>&1; then
+      say "backup $b archived to refs/harness/backups/${b#backup/}"; done_b+=("$b")
+    else say "backup $b kept (archive failed)"; fi
+  done <<<"$blist"
+  if [ "${#done_b[@]}" -gt 0 ]; then
+    d="$(printf '%s\n' "${done_b[@]}" | jq -R . | jq -sc .)"
+    if [ "$bsrc" = goal ]; then goal_update --argjson d "$d" '.backup_branches = ((.backup_branches // []) - $d)'
+    else reg_update "$bslug" --argjson d "$d" '.backup_branches = ((.backup_branches // []) - $d)' || true; fi
   fi
 fi
 
