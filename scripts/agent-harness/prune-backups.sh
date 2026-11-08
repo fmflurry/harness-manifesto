@@ -47,19 +47,20 @@ while IFS= read -r b; do
   [[ "$b" =~ $BACKUP_RE ]] || continue
   { [ "$b" != "$base" ] && [ "$b" != "$current" ]; } || continue
   n=$((n + 1))
-  tip="$(g rev-parse --short "refs/heads/$b")"
+  full="$(g rev-parse "refs/heads/$b")"
+  tip="${full:0:7}"
   if grep -qxF "$b" <<<"$listed"; then say "backup $b @ $tip kept (listed by a goal)"; kept=$((kept + 1)); continue; fi
   merged=""
-  if g merge-base --is-ancestor "refs/heads/$b" "origin/$base" 2>/dev/null; then merged=1; fi
+  if g merge-base --is-ancestor "$full" "origin/$base" 2>/dev/null; then merged=1; fi
   if [ -z "$confirmed" ]; then
     aref="refs/harness/backups/${b#backup/}"
     have="$(g rev-parse -q --verify "$aref" 2>/dev/null || true)"
     if [ -n "$merged" ]; then say "backup $b @ $tip would be deleted (in origin/$base)"
-    elif [ -n "$have" ] && [ "$have" != "$(g rev-parse "refs/heads/$b")" ]; then say "backup $b @ $tip would be kept (archive name $aref is taken)"
+    elif [ -n "$have" ] && [ "$have" != "$full" ]; then say "backup $b @ $tip would be kept (archive name $aref is taken)"
     else say "backup $b @ $tip would be archived to $aref, then deleted"; fi
     continue
   fi
-  if msg="$(backup_retire "$CO" "$b" "$merged")"; then acted=$((acted + 1)); else kept=$((kept + 1)); fi
+  if msg="$(backup_retire "$CO" "$b" "$merged" "$full")"; then acted=$((acted + 1)); else kept=$((kept + 1)); fi
   say "$msg"
 done < <(g for-each-ref --format='%(refname:short)' refs/heads/backup/)
 

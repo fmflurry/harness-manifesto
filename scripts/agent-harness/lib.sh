@@ -352,14 +352,14 @@ cfg_get() { [ -f "$CONFIG_FILE" ] || return 0; jq -r "$1" "$CONFIG_FILE" 2>/dev/
 # Backup branch names the harness creates and may retire.
 BACKUP_RE='^backup/[a-z0-9]+(-[a-z0-9]+)*$'
 
-# backup_retire <checkout> <branch> <merged>: deletes a merged backup, or archives an unmerged one under
+# backup_retire <checkout> <branch> <merged> <tip>: deletes a merged backup, or archives an unmerged one under
 # refs/harness/backups/ and then deletes it. Prints one line; returns 0 only when the branch is gone.
 # refs/harness has no reflog, so an existing archive is never moved: the empty old value makes update-ref create-only.
-# The branch is deleted against the tip it was read at, so a branch that moved meanwhile is kept, not lost; a branch
+# The branch is deleted against <tip>, the one the caller judged, so a branch that moved meanwhile is kept, not lost; a branch
 # checked out in any worktree is kept too.
 backup_retire() {
-  local co="$1" b="$2" merged="$3" tip aref have inuse=""
-  tip="$(git -C "$co" rev-parse -q --verify "refs/heads/$b")" || { echo "backup $b kept (unreadable)"; return 1; }
+  local co="$1" b="$2" merged="$3" tip="$4" aref have inuse=""
+  [[ "$tip" =~ ^[0-9a-f]{40,64}$ ]] || { echo "backup $b kept (unreadable)"; return 1; }
   if git -C "$co" worktree list --porcelain 2>/dev/null | grep -qxF "branch refs/heads/$b"; then inuse=1; fi
   if [ -n "$merged" ]; then
     if [ -n "$inuse" ]; then echo "backup $b kept (checked out in a worktree)"; return 1; fi

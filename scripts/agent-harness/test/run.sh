@@ -2869,6 +2869,10 @@ for c in "cd /tmp/x && agent-harness ship-init feat ui x" "agent-harness ship-in
 done
 check "lifecycle guard keeps the argument message for a bad shape" grep -q 'take exactly their documented arguments' <<<"$(gate_reason "agent-harness ship-init feat Ui x")"
 check "prune-backups guard names the documented shape" grep -qF 'prune-backups takes exactly `agent-harness prune-backups [--confirmed]`' <<<"$(gate_reason "agent-harness prune-backups --force")"
+for c in "bash -o errexit ./x/prune-backups.sh --confirmed" "bash -O extglob ./x/prune-backups.sh" "bash --rcfile /dev/null ./x/prune-backups.sh --confirmed" "bash -o errexit ./x/cleanup.sh 5" "bash -o errexit ./x/worktree-rm.sh /x --force"; do
+  check "guard skips a shell option and its value: $c" denied "$c"
+done
+check "guard still allows an installed prune-backups after a shell option" allowed "bash -o errexit ~/.claude/scripts/agent-harness/prune-backups.sh --confirmed"
 check "branch delete denial names prune-backups" grep -q 'agent-harness prune-backups' <<<"$(gate_reason "git branch -D backup/x")"
 for c in "agent-harness cleanup 15 --confirmed" "agent-harness cleanup --help" "agent-harness cleanup 5 6" "agent-harness cleanup"; do
   check "cleanup guard denies a bad shape: $c" denied "$c"

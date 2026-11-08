@@ -930,7 +930,12 @@ check_worktree_rm() {
   local rest=() legit=0 script
   case "$c0" in
     bash | sh | zsh | dash)
-      while [[ "${1:-}" == -* ]]; do shift; done
+      # Skip shell options, and the value of those that take one, so the script word is the one bash runs.
+      while [[ "${1:-}" == -* && "$1" != -- ]]; do
+        case "$1" in -o | -O | +O | --rcfile | --init-file) shift ;; esac
+        shift
+      done
+      [ "${1:-}" != -- ] || shift
       script="${1:-}"
       [[ "${script##*/}" == worktree-rm.sh ]] || return 1
       wt_rm_entry "$script" && legit=1
@@ -993,6 +998,11 @@ check_cleanup() {
   local rest=()
   case "$c0" in
     bash | sh | zsh | dash)
+      while [[ "${1:-}" == -* && "$1" != -- ]]; do
+        case "$1" in -o | -O | +O | --rcfile | --init-file) shift ;; esac
+        shift
+      done
+      [ "${1:-}" != -- ] || shift
       [[ "${1:-}" =~ cleanup\.sh$ ]] || return 1
       [[ "$1" == */scripts/agent-harness/cleanup.sh ]] || deny
       shift; rest=("$@") ;;
@@ -1022,7 +1032,12 @@ check_prune_backups() {
   local rest=()
   case "$c0" in
     bash | sh | zsh | dash)
-      while [[ "${1:-}" == -* ]]; do shift; done
+      # Skip shell options, and the value of those that take one, so the script word is the one bash runs.
+      while [[ "${1:-}" == -* && "$1" != -- ]]; do
+        case "$1" in -o | -O | +O | --rcfile | --init-file) shift ;; esac
+        shift
+      done
+      [ "${1:-}" != -- ] || shift
       case "${1##*/}" in
         prune-backups.sh) prune_entry "$1" || deny_prune_shape ;;
         agent-harness.sh) [ "${2:-}" = prune-backups ] || return 1; deny_prune_shape ;;
@@ -1049,7 +1064,12 @@ check_harness_cmd() {
   local name="$1" shape="$2" has_assign="$3" c0="$4" a script=""; shift 4
   case "$c0" in
     bash | sh | zsh | dash)
-      while [[ "${1:-}" == -* ]]; do shift; done
+      # Skip shell options, and the value of those that take one, so the script word is the one bash runs.
+      while [[ "${1:-}" == -* && "$1" != -- ]]; do
+        case "$1" in -o | -O | +O | --rcfile | --init-file) shift ;; esac
+        shift
+      done
+      [ "${1:-}" != -- ] || shift
       script="${1:-}"
       case "${script##*/}" in
         "$name.sh") deny_harness_cmd ;;
