@@ -2076,15 +2076,37 @@ gate_on && pushfast=0
 # A push run in another goal worktree (cd, git -C) is gated by that worktree's goal, so no fast path while any goal exists.
 [ "$AUTO" = 1 ] && [ -n "$(find "$STATE_DIR/goals" -maxdepth 1 -name '*.json' 2>/dev/null | head -n 1)" ] && pushfast=0
 # The same goes for a push into another repo's checkout, whose goals live in that repo's state: no fast path when a
-# cd, pushd or -C target exists (or a backslash makes the words ambiguous).
+# cd, pushd or -C target sits in a checkout whose main checkout keeps goal state, or when quoting or a backslash makes
+# the words ambiguous. Found without forking: walk up to .git; a linked worktree names its main checkout in it.
+pf_seen=""
+pf_goal_dir() {
+  local d="$1" line main="" g
+  [[ "$d" == /* ]] || d="$cwd/$d"
+  while [ -n "$d" ]; do
+    if [ -d "$d/.git" ]; then main="$d"; break; fi
+    if [ -f "$d/.git" ]; then
+      IFS= read -r line <"$d/.git" || line=""
+      line="${line#gitdir: }"; main="${line%/.git/worktrees/*}"
+      [ "$main" != "$line" ] || return 0
+      break
+    fi
+    d="${d%/*}"
+  done
+  [ -n "$main" ] || return 1
+  case " $pf_seen " in *" $main "*) return 1 ;; esac
+  set +f
+  for g in "$main"/.claude/state/goals/*.json; do [ -e "$g" ] && { set -f; return 0; }; done
+  set -f
+  pf_seen="$pf_seen $main"
+  return 1
+}
 if [ "$AUTO" = 1 ] && [ "$pushfast" = 1 ] && [[ "$cmd" =~ (^|[^[:alnum:]_-])(cd|pushd|-C)[[:space:]] ]]; then
-  if [[ "$cmd" == *\\* ]]; then
+  if [[ "$cmd" == *[\\\"\']* ]]; then
     pushfast=0
   else
     pf_prev=""
     for pf_w in $cmd; do
-      pf_w="${pf_w//[\"\']/}"
-      case "$pf_prev" in cd | pushd | -C) [ -e "$pf_w" ] && { pushfast=0; break; } ;; esac
+      case "$pf_prev" in cd | pushd | -C) pf_goal_dir "$pf_w" && { pushfast=0; break; } ;; esac
       pf_prev="$pf_w"
     done
   fi
