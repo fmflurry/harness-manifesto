@@ -2081,13 +2081,13 @@ gate_on && pushfast=0
 pf_seen=""
 pf_goal_dir() {
   local d="$1" line main="" g
-  [[ "$d" == /* ]] || d="$cwd/$d"
+  [[ "$d" == /* || "$d" == [A-Za-z]:* ]] || d="$cwd/$d"
   while [ -n "$d" ]; do
     if [ -d "$d/.git" ]; then main="$d"; break; fi
     if [ -f "$d/.git" ]; then
       IFS= read -r line <"$d/.git" || line=""
       line="${line#gitdir: }"; main="${line%/.git/worktrees/*}"
-      [ "$main" != "$line" ] || return 0
+      [ "$main" != "$line" ] && [[ "$main" == /* || "$main" == [A-Za-z]:* ]] || return 0
       break
     fi
     d="${d%/*}"
