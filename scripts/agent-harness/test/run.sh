@@ -2882,6 +2882,17 @@ for sh in bash sh zsh "env bash"; do
     done
   done
 done
+for sh in bash sh zsh dash ksh "env bash" "command bash" "exec bash"; do
+  for s in '$(true)' '$(printf %s -x)' '`echo -e`'; do
+    for t in "./x/prune-backups.sh --confirmed" "./x/cleanup.sh 5" "./x/worktree-rm.sh /x --confirmed" "./x/agent-harness.sh cleanup 5" "~/.claude/scripts/agent-harness/prune-backups.sh --all"; do
+      check "guard denies a substitution before a harness script: $sh $s $t" denied "$sh $s $t"
+    done
+  done
+done
+check "guard denies a substitution feeding a harness command" denied 'agent-harness prune-backups $(echo --confirmed)'
+check "guard denies a substitution next to a launcher" denied 'bash ./build.sh $(date)'
+check "guard still allows a substitution with no launcher or harness script" allowed 'echo "$(date)"'
+check "guard still allows agent-harness goal sha with a substitution" allowed 'agent-harness goal sha $(git rev-parse HEAD)'
 check "guard still allows plain agent-harness prune-backups" allowed "agent-harness prune-backups --confirmed"
 check "guard names shell flags" grep -q 'run the harness script without shell options' <<<"$(gate_reason "bash -eo pipefail ./x/prune-backups.sh --confirmed")"
 check "guard still allows a plain installed prune-backups" allowed "bash ~/.claude/scripts/agent-harness/prune-backups.sh --confirmed"
