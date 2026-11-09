@@ -151,12 +151,21 @@ SESSION_REPO="$GS_REPO" SESSION_GOAL_FILE="$GOAL_FILE"
 # goal_for_dir <dir>: bind GOAL_FILE to the goal of the checkout a command runs in (after cd or git -C), so that
 # goal's own reviews gate it. Fails closed: the switch happens only when that goal is itself gated; a checkout with
 # no goal, or an escalated, blocked or done one, keeps the session's goal.
+# A checkout of another repo (a goal started with --repo) is gated by that repo's goal, read from its main checkout.
 goal_for_dir() {
+  local main id
   GOAL_FILE="$SESSION_GOAL_FILE"
   [ -n "$1" ] && [ "$1" != "?" ] && [ -d "$1" ] && [ -n "$SESSION_REPO" ] || return 0
   goal_scope_resolve "$1"
-  [ "${GS_KIND:-none}" != none ] && [ "$GS_REPO" = "$SESSION_REPO" ] || return 0
-  goal_bind_file "$STATE_DIR"
+  [ "${GS_KIND:-none}" != none ] || return 0
+  if [ "$GS_REPO" = "$SESSION_REPO" ]; then
+    goal_bind_file "$STATE_DIR"
+  else
+    main="$(git -C "$1" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
+    id="$(goal_state_id 2>/dev/null || true)"
+    { [ -n "$main" ] && [[ "$id" =~ ^[0-9a-f]{40}$ ]]; } || return 0
+    GOAL_FILE="$main/.claude/state/goals/$id.json"
+  fi
   gate_on || GOAL_FILE="$SESSION_GOAL_FILE"
 }
 
@@ -363,11 +372,11 @@ gate_git() {
   fi
 }
 
-# Gated while autonomy is on and the goal is active; an unreadable goal.json fails closed.
-# Sets GATE_BASE from goal.json.
+# Gated while autonomy is on (the session's flag, or the flag of the repo that holds the goal) and the goal is active;
+# an unreadable goal.json fails closed. Sets GATE_BASE from goal.json.
 gate_on() {
   local goal="$GOAL_FILE" st=""
-  [ "$AUTO" = 1 ] && [ -f "$goal" ] || return 1
+  { [ "$AUTO" = 1 ] || [ -f "${goal%/goals/*}/autonomy.on" ]; } && [ -f "$goal" ] || return 1
   { read -r st; read -r GATE_BASE; } < <(jqr '(.status // ""), (.base // "")' "$goal" 2>/dev/null)
   [ "$st" = active ] || [ -z "$st" ]
 }
@@ -948,7 +957,7 @@ shell_flag_run() {
 drop_repo_opt() {
   local n="${#RA[@]}" a
   if [ "$n" -ge 2 ] && [ "${RA[n - 2]}" = --repo ]; then
-    [[ "${RA[n - 1]}" == /* ]] || return 1
+    [[ "${RA[n - 1]}" == /* && "${RA[n - 1]}" != *['$`*?[']* ]] || return 1
     RA=("${RA[@]:0:n-2}")
   fi
   for a in "${RA[@]}"; do case "$a" in --repo | --repo=*) return 1 ;; esac; done
@@ -2066,6 +2075,20 @@ case "$BASE_A$BASE_B" in *\\* | *\"* | *\'* | *$'\n'*) pushfast=0 ;; esac
 gate_on && pushfast=0
 # A push run in another goal worktree (cd, git -C) is gated by that worktree's goal, so no fast path while any goal exists.
 [ "$AUTO" = 1 ] && [ -n "$(find "$STATE_DIR/goals" -maxdepth 1 -name '*.json' 2>/dev/null | head -n 1)" ] && pushfast=0
+# The same goes for a push into another repo's checkout, whose goals live in that repo's state: no fast path when a
+# cd, pushd or -C target exists (or a backslash makes the words ambiguous).
+if [ "$AUTO" = 1 ] && [ "$pushfast" = 1 ] && [[ "$cmd" =~ (^|[^[:alnum:]_-])(cd|pushd|-C)[[:space:]] ]]; then
+  if [[ "$cmd" == *\\* ]]; then
+    pushfast=0
+  else
+    pf_prev=""
+    for pf_w in $cmd; do
+      pf_w="${pf_w//[\"\']/}"
+      case "$pf_prev" in cd | pushd | -C) [ -e "$pf_w" ] && { pushfast=0; break; } ;; esac
+      pf_prev="$pf_w"
+    done
+  fi
+fi
 merged=0
 if [[ "$cmd" != *\\* ]]; then
   # One awk pass yields the quote-aware scan and the legacy segments. Splits stay outside quotes,

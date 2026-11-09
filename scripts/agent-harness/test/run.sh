@@ -2948,7 +2948,9 @@ done
 for c in "agent-harness worktree-rm /x --confirmed --repo rel" "agent-harness worktree-rm /x --repo /abs/repo --confirmed" \
   "agent-harness ship-merge 5 --repo rel" "agent-harness ship-merge 5 --repo /abs/repo --method rebase" "agent-harness ship-merge 5 --repo=/abs/repo" \
   "agent-harness cleanup 5 --repo rel" "agent-harness cleanup 5 --repo /abs/repo --keep-branch" "agent-harness cleanup --repo /abs/repo" \
-  "GH_BIN=/x agent-harness cleanup 5 --repo /abs/repo"; do
+  "GH_BIN=/x agent-harness cleanup 5 --repo /abs/repo" "agent-harness cleanup 5 --repo /abs/repo*" \
+  "agent-harness worktree-rm /x --confirmed --repo /abs/[r]epo" "bash -x ~/.claude/scripts/agent-harness/worktree-rm.sh /x --confirmed --repo /abs/repo" \
+  "agent-harness prune-backups --repo /abs/repo"; do
   check "repo guard (flag on) denies: $c" denied "$c"
 done
 check "lifecycle guard keeps the argument message for a bad shape" grep -q 'take exactly their documented arguments' <<<"$(gate_reason "agent-harness ship-init feat Ui x")"
@@ -3072,6 +3074,19 @@ check "git guard: writing the goal registry from the shell denies" lw_denied "$(
 LCWD="$LT" LH goal review code pass >/dev/null 2>&1
 LCWD="$LT" LH goal review security pass >/dev/null 2>&1
 check "push guard: cd finds the reviews recorded in the worktree" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "cd $LT && git push -u origin feat/ui-cd-guard")"
+# A goal started with --repo from another repo is gated by its own goal and its own repo's autonomy flag.
+LA="$LROOT/caller-repo"; git init -q "$LA"; git -C "$LA" -c user.email=t@t -c user.name=t commit -q --allow-empty -m a
+LCWD="$LA" LH agent-harness ship-init feat ui cross-x --goal "cross" --repo "$LM" >"$FX/out" 2>/dev/null; LX="$(cat "$FX/out")"
+( cd "$LX" && echo x >x && git add x && git commit -qm X ) >/dev/null 2>&1
+mkdir -p "$LA/.claude/state"; touch "$LA/.claude/state/autonomy.on"
+check "push guard: the caller repo has no goal of its own" test -z "$(find "$LA/.claude/state" -name '*.json' 2>/dev/null)"
+check "push guard: from another repo, a plain git -C push into an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LX push origin feat/ui-cross-x")"
+check "push guard: from another repo, cd into an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LX && git push -u origin feat/ui-cross-x")"
+check "push guard: from another repo, git -C an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LX push -u origin feat/ui-cross-x")"
+check "gh pr create guard: from another repo, cd into an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LX && gh pr create --fill")"
+LCWD="$LA" LH agent-harness goal review code pass --repo "$LX" >/dev/null 2>&1
+LCWD="$LA" LH agent-harness goal review security pass --repo "$LX" >/dev/null 2>&1
+check "push guard: from another repo, the --repo goal's own reviews allow the push" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LX && git push -u origin feat/ui-cross-x")"
 check "push guard: git -C finds the reviews recorded in the worktree" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "git -C $LT push -u origin feat/ui-cd-guard")"
 check "gh pr create guard: cd finds the worktree's reviews" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "cd $LT && gh pr create --fill")"
 check "gh pr create guard: --head maps to the registered worktree's reviews" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "gh pr create --head feat/ui-cd-guard --fill")"
