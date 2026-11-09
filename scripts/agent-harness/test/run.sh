@@ -806,7 +806,7 @@ cfresh; cgoal set g >/dev/null; CG="$(cgoal_file)"
 W="$TMP/work"; OM="$(git -C "$W" rev-parse origin/master)"; OTREE="$(git -C "$W" rev-parse "origin/master^{tree}")"
 PC1="$(git -C "$W" commit-tree -p "$OM" -m c1 "$OTREE")"; PC2="$(git -C "$W" commit-tree -p "$PC1" -m c2 "$OTREE")"
 PUN="$(git -C "$W" commit-tree -p "$OM" -m unmerged "$OTREE")"
-git -C "$W" update-ref refs/remotes/origin/master "$PC2"
+git -C "$W" push -q origin "$PC2:refs/heads/master" >/dev/null 2>&1
 for b in pb-merged pb-claimed pb-wt; do git -C "$W" branch -q "$b" "$PC1"; done
 git -C "$W" branch -q pb-at-base "$PC2"; git -C "$W" branch -q pb-unmerged "$PUN"; git -C "$W" branch -q backup/pb-old "$PC1"
 git -C "$W" symbolic-ref refs/heads/pb-sym refs/heads/pb-at-base
@@ -839,10 +839,21 @@ check "prune-branches bad flag: exits 2" test $rc -eq 2
 echo '{bad' >"$TMP/state/goals/bad.json"; pbr --confirmed; rc=$?
 check "prune-branches unreadable goal file: refuses" test $rc -eq 1
 rm -f "$TMP/state/goals/bad.json"
+PSP="$(git -C "$W" commit-tree -p "$OM" -m spoof "$OTREE")"; git -C "$W" branch -q pb-spoof "$PSP"
+git -C "$W" update-ref refs/remotes/origin/master "$(git -C "$W" commit-tree -p "$PSP" -m on-top "$OTREE")"
+pbr --confirmed; rc=$?
+check "prune-branches forged origin/master: the unmerged branch is kept" local_exists pb-spoof
+check "prune-branches forged origin/master: the ref is refreshed from origin" test "$(git -C "$W" rev-parse refs/remotes/origin/master)" = "$PC2"
+OURL="$(git -C "$W" remote get-url origin)"; git -C "$W" remote set-url origin "$TMP/no-such-origin.git"
+git -C "$W" update-ref refs/remotes/origin/master "$(git -C "$W" commit-tree -p "$PSP" -m on-top "$OTREE")"
+pbr --confirmed; rc=$?
+check "prune-branches origin unreachable: refuses" test $rc -eq 1
+check "prune-branches origin unreachable: deletes nothing" local_exists pb-spoof
+git -C "$W" remote set-url origin "$OURL"; git -C "$W" branch -q -D pb-spoof
 git -C "$W" worktree remove --force "$TMP/pbwt" >/dev/null 2>&1
 git -C "$W" symbolic-ref --delete refs/heads/pb-sym; git -C "$W" tag -d origin/master >/dev/null
 git -C "$W" branch -q -D pb-claimed pb-wt pb-at-base pb-unmerged backup/pb-old
-git -C "$W" update-ref refs/remotes/origin/master "$OM"
+git --git-dir="$TMP/origin.git" update-ref refs/heads/master "$OM"; git -C "$W" update-ref refs/remotes/origin/master "$OM"
 
 # prune-backups edge cases: no registry dir, a corrupt list, detached HEAD, no base, linked worktrees.
 cfresh; rm -rf "$PREG"

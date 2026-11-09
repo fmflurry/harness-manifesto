@@ -20,18 +20,19 @@ CO="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 g() { git -C "$CO" "$@"; }
 g rev-parse --git-dir >/dev/null 2>&1 || refuse "not a git repository"
 
-base="$(base_branch 2>/dev/null)" || base="$(g symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)" || base=""
-base="${base#origin/}"
+base="$(base_branch 2>/dev/null)" || base=""
 { [ -n "$base" ] && git check-ref-format --branch "$base" >/dev/null 2>&1; } || refuse "cannot resolve the base branch"
-# Fully qualified: a local tag or branch named origin/<base> must not stand in for the remote-tracking ref.
+# Fully qualified: a local tag or branch named origin/<base> must not stand in for the remote-tracking ref. Fetched
+# first: the local remote-tracking ref is writable, so only what origin has now proves a merge.
 base_ref="refs/remotes/origin/$base"
-base_tip="$(g rev-parse -q --verify "$base_ref^{commit}" 2>/dev/null)" || refuse "no $base_ref; run git fetch origin"
+g fetch -q --no-tags origin "+refs/heads/$base:$base_ref" 2>/dev/null || refuse "cannot fetch $base from origin"
+base_tip="$(g rev-parse -q --verify "$base_ref^{commit}" 2>/dev/null)" || refuse "no $base_ref after fetching origin"
 current="$(g symbolic-ref -q HEAD 2>/dev/null || true)"
 
 # Every branch a goal file (any worktree's, all kept in the main checkout's state dir) or a registry entry names stays
 # put. A file that cannot be read refuses the run: it might claim a branch.
 files=()
-for f in "$STATE_DIR"/goal.json "$STATE_DIR"/goals/*.json; do
+for f in "$STATE_DIR"/goal.json "$STATE_DIR"/goal.shared.quarantine*.json "$STATE_DIR"/goals/*.json; do
   if [ -f "$f" ]; then files+=("$f"); fi
 done
 if rd="$(reg_dir 2>/dev/null)"; then

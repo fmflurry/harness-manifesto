@@ -4,7 +4,7 @@ Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cur
 
 ## [0.4.43] - 2026-11-09
 
-- New `agent-harness prune-branches [--confirmed]` deletes local branches other than `backup/*` whose tip is already in `refs/remotes/origin/<base>` and that no goal file or registry entry claims. It keeps the base and current branch, branches checked out in a worktree, symbolic refs, and branches still at the tip of `origin/<base>`. It never touches remotes and only lists what it would do without `--confirmed`. The git guard allows exactly that shape.
+- New `agent-harness prune-branches [--confirmed]` deletes local branches other than `backup/*` whose tip is already in `origin/<base>`, fetched from origin first so a locally rewritten remote-tracking ref proves nothing, and that no goal file or registry entry claims. It keeps the base and current branch, branches checked out in a worktree, symbolic refs, and branches still at the tip of `origin/<base>`. It never touches remotes and only lists what it would do without `--confirmed`. The git guard allows exactly that shape.
 
 ## [0.4.42] - 2026-11-09
 
