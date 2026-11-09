@@ -800,6 +800,75 @@ check "prune-backups with a tag named origin/master: unmerged backup archived, n
 check "prune-backups with a tag named origin/master: says archived" grep -q '^prune-backups: backup backup/faked archived to refs/harness/backups/faked' "$FX/out"
 git -C "$TMP/work" tag -d origin/master >/dev/null; git -C "$TMP/work" update-ref -d refs/harness/backups/faked; git -C "$TMP/work" branch -q -D keepme side
 
+# ---- prune-branches: local branches already in origin/<base> that nothing claims
+pbr() { ( cd "$TMP/work" && CLAUDE_PROJECT_DIR="$TMP/work" bash "$H/prune-branches.sh" "$@" ) >"$FX/out" 2>&1; }
+cfresh; cgoal set g >/dev/null; CG="$(cgoal_file)"
+W="$TMP/work"; OM="$(git -C "$W" rev-parse origin/master)"; OTREE="$(git -C "$W" rev-parse "origin/master^{tree}")"
+PC1="$(git -C "$W" commit-tree -p "$OM" -m c1 "$OTREE")"; PC2="$(git -C "$W" commit-tree -p "$PC1" -m c2 "$OTREE")"
+PUN="$(git -C "$W" commit-tree -p "$OM" -m unmerged "$OTREE")"
+git -C "$W" push -q origin "$PC2:refs/heads/master" >/dev/null 2>&1
+for b in pb-merged pb-claimed pb-wt; do git -C "$W" branch -q "$b" "$PC1"; done
+git -C "$W" branch -q pb-at-base "$PC2"; git -C "$W" branch -q pb-unmerged "$PUN"; git -C "$W" branch -q backup/pb-old "$PC1"
+git -C "$W" symbolic-ref refs/heads/pb-sym refs/heads/pb-at-base
+git -C "$W" worktree add -q "$TMP/pbwt" pb-wt >/dev/null 2>&1
+jq '.branch="pb-claimed"' "$CG" >"$FX/t" && mv "$FX/t" "$CG"
+git -C "$W" tag origin/master "$PUN"
+pb_refs() { git -C "$W" for-each-ref --format='%(refname) %(objectname)' refs/heads refs/remotes refs/tags; }
+before="$(pb_refs)"; origin_before="$(git --git-dir="$TMP/origin.git" for-each-ref)"
+pbr; rc=$?
+check "prune-branches dry run: exits 0" test $rc -eq 0
+check "prune-branches dry run: changes no ref" test "$(pb_refs)" = "$before"
+check "prune-branches dry run: says it would delete the merged branch" grep -q '^prune-branches: pb-merged @ [0-9a-f]* would be deleted' "$FX/out"
+check "prune-branches dry run: asks for --confirmed" grep -q 'dry run; pass --confirmed to act' "$FX/out"
+pbr --confirmed; rc=$?
+check "prune-branches: exits 0" test $rc -eq 0
+check "prune-branches: a merged branch nobody claims is deleted" bash -c '! git -C "$1" show-ref --verify --quiet refs/heads/pb-merged' _ "$W"
+check "prune-branches: a branch claimed by a goal is kept" local_exists pb-claimed
+check "prune-branches: a branch checked out in a worktree is kept" local_exists pb-wt
+check "prune-branches: a branch at the tip of origin/master is kept" local_exists pb-at-base
+check "prune-branches: an unmerged branch is kept, even with a tag named origin/master on it" local_exists pb-unmerged
+check "prune-branches: a symbolic ref is kept and its target survives" bash -c 'git -C "$1" symbolic-ref -q refs/heads/pb-sym >/dev/null && git -C "$1" show-ref --verify --quiet refs/heads/pb-at-base' _ "$W"
+check "prune-branches: backup branches are left to prune-backups" local_exists backup/pb-old
+check "prune-branches: the current branch is kept" test "$(cur_branch)" = feat
+check "prune-branches: the base branch is kept" local_exists master
+check "prune-branches: remote-tracking refs are untouched" test "$(git -C "$W" rev-parse refs/remotes/origin/master)" = "$PC2"
+check "prune-branches: the remote is untouched" test "$(git --git-dir="$TMP/origin.git" for-each-ref)" = "$origin_before"
+check "prune-branches: says why each branch is kept" bash -c 'grep -q "pb-claimed @ [0-9a-f]* kept (claimed by a goal)" "$1" && grep -q "pb-wt @ [0-9a-f]* kept (checked out in a worktree)" "$1" && grep -q "pb-at-base @ [0-9a-f]* kept (no commits of its own yet)" "$1" && grep -q "pb-unmerged @ [0-9a-f]* kept (not in origin/master)" "$1" && grep -q "pb-sym kept (symbolic ref)" "$1"' _ "$FX/out"
+out="$(cd "$W" && CLAUDE_PROJECT_DIR="$W" bash "$H/prune-branches.sh" --force 2>&1)"; rc=$?
+check "prune-branches bad flag: exits 2" test $rc -eq 2
+echo '{bad' >"$TMP/state/goals/bad.json"; pbr --confirmed; rc=$?
+check "prune-branches unreadable goal file: refuses" test $rc -eq 1
+rm -f "$TMP/state/goals/bad.json"
+PSP="$(git -C "$W" commit-tree -p "$OM" -m spoof "$OTREE")"; git -C "$W" branch -q pb-spoof "$PSP"
+git -C "$W" update-ref refs/remotes/origin/master "$(git -C "$W" commit-tree -p "$PSP" -m on-top "$OTREE")"
+pbr --confirmed; rc=$?
+check "prune-branches forged origin/master: the unmerged branch is kept" local_exists pb-spoof
+check "prune-branches forged origin/master: the ref is refreshed from origin" test "$(git -C "$W" rev-parse refs/remotes/origin/master)" = "$PC2"
+OURL="$(git -C "$W" remote get-url origin)"; git -C "$W" remote set-url origin "$TMP/no-such-origin.git"
+git -C "$W" update-ref refs/remotes/origin/master "$(git -C "$W" commit-tree -p "$PSP" -m on-top "$OTREE")"
+pbr --confirmed; rc=$?
+check "prune-branches origin unreachable: refuses" test $rc -eq 1
+check "prune-branches origin unreachable: deletes nothing" local_exists pb-spoof
+git -C "$W" remote set-url origin "$OURL"; git -C "$W" branch -q -D pb-spoof
+PRC="$(git -C "$W" commit-tree -p "$OM" -m race "$OTREE")"; git -C "$W" branch -q pb-race "$PRC"
+PRS="$(git -C "$W" commit-tree -p "$PRC" -m on-top "$OTREE")"
+mkdir -p "$TMP/pbhooks"; cat >"$TMP/pbhooks/reference-transaction" <<HOOK
+#!/bin/sh
+[ "\$1" = committed ] && [ -z "\$PB_RACE" ] || exit 0
+grep -q ' refs/remotes/origin/master\$' || exit 0
+PB_RACE=1 git update-ref refs/remotes/origin/master $PRS
+HOOK
+chmod +x "$TMP/pbhooks/reference-transaction"; git -C "$W" config core.hooksPath "$TMP/pbhooks"
+pbr --confirmed; rc=$?
+git -C "$W" config --unset core.hooksPath
+check "prune-branches origin/master rewritten after the fetch: the race ran" test "$(git -C "$W" rev-parse refs/remotes/origin/master)" = "$PRS"
+check "prune-branches origin/master rewritten after the fetch: the unmerged branch is kept" local_exists pb-race
+git -C "$W" branch -q -D pb-race; git -C "$W" update-ref refs/remotes/origin/master "$PC2"
+git -C "$W" worktree remove --force "$TMP/pbwt" >/dev/null 2>&1
+git -C "$W" symbolic-ref --delete refs/heads/pb-sym; git -C "$W" tag -d origin/master >/dev/null
+git -C "$W" branch -q -D pb-claimed pb-wt pb-at-base pb-unmerged backup/pb-old
+git --git-dir="$TMP/origin.git" update-ref refs/heads/master "$OM"; git -C "$W" update-ref refs/remotes/origin/master "$OM"
+
 # prune-backups edge cases: no registry dir, a corrupt list, detached HEAD, no base, linked worktrees.
 cfresh; rm -rf "$PREG"
 git -C "$TMP/work" branch -q backup/solo origin/master
@@ -1241,9 +1310,19 @@ agent-harness goal backup-add backup/feat-1
 agent-harness prune-backups
 agent-harness prune-backups --confirmed
 bash ~/.claude/scripts/agent-harness/prune-backups.sh --confirmed
+agent-harness prune-branches
+agent-harness prune-branches --confirmed
+bash ~/.claude/scripts/agent-harness/prune-branches.sh --confirmed
 CMDS
 )"
 CLEAN_DENY_CMDS="$(cat <<'CMDS'
+agent-harness prune-branches --force
+agent-harness prune-branches --confirmed feat
+GH_BIN=/tmp/gh agent-harness prune-branches --confirmed
+bash ./x/prune-branches.sh --confirmed
+./agent-harness prune-branches --confirmed
+bash ~/.claude/scripts/agent-harness/agent-harness.sh prune-branches --confirmed
+bash -x ~/.claude/scripts/agent-harness/prune-branches.sh --confirmed
 agent-harness prune-backups --force
 agent-harness prune-backups --confirmed backup/x
 GH_BIN=/tmp/gh agent-harness prune-backups --confirmed
@@ -2825,7 +2904,7 @@ out="$( cd "$LM" && env -u CLAUDE_PROJECT_DIR PATH="$TMP/lsleep:$TMP/lbin:$PATH"
 check "dispatcher: teardown-merged-worktree forwards" grep -q 'no registered worktree for PR 99' <<<"$out"
 out="$( cd "$LM" && bash "$H/agent-harness.sh" report 2>&1)"; rc=$?
 check "dispatcher: report forwards" grep -q 'usage: report.sh' <<<"$out"
-check "dispatcher: usage lists the new commands" grep -q 'ship-init|ship-merge|cleanup|prune-backups|teardown-merged-worktree|worktree-rm|report' <<<"$(bash "$H/agent-harness.sh" 2>&1)"
+check "dispatcher: usage lists the new commands" grep -q 'ship-init|ship-merge|cleanup|prune-backups|prune-branches|teardown-merged-worktree|worktree-rm|report' <<<"$(bash "$H/agent-harness.sh" 2>&1)"
 
 # guard: teardown, ship-init, env and function injection
 GUARD_CWD="$TMP/work"
@@ -2959,6 +3038,7 @@ for c in "agent-harness worktree-rm /x --confirmed --repo rel" "agent-harness wo
 done
 check "lifecycle guard keeps the argument message for a bad shape" grep -q 'take exactly their documented arguments' <<<"$(gate_reason "agent-harness ship-init feat Ui x")"
 check "prune-backups guard names the documented shape" grep -qF 'prune-backups takes exactly `agent-harness prune-backups [--confirmed]`' <<<"$(gate_reason "agent-harness prune-backups --force")"
+check "prune-branches guard names the documented shape" grep -qF 'prune-branches takes exactly `agent-harness prune-branches [--confirmed]`' <<<"$(gate_reason "agent-harness prune-branches --force")"
 for f in "-eo pipefail" "-xO extglob" "+o errexit" "+O extglob" "-o errexit" "--rcfile /dev/null"; do
   for t in "./x/prune-backups.sh --confirmed" "./x/cleanup.sh 5" "./x/worktree-rm.sh /x --confirmed" "./x/agent-harness.sh cleanup 5" "~/.claude/scripts/agent-harness/prune-backups.sh --confirmed"; do
     check "guard denies shell flags before a harness script: bash $f $t" denied "bash $f $t"

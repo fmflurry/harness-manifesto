@@ -54,7 +54,7 @@ cmd="${fields:$((${#cwd} + 1))}"
 # One scan. A command with none of these cannot name git, gh, a delete, a redirect,
 # an expansion, or a protected-path write, so the quote walker never starts.
 # The right-hand side stays unquoted: bash 3.2 treats a quoted =~ operand as a literal.
-GG_FAST_RE='git|gh|rm|mv|cp|ln|tee|sed|dd|perl|python|node|ruby|rsync|find|trash|truncate|touch|install|sponge|direnv|orca|ship-init|ship-merge|worktree|teardown|agent-harness|cleanup|prune-backups|xargs|pushd|popd|<|>|\$|\{|`|\\'
+GG_FAST_RE='git|gh|rm|mv|cp|ln|tee|sed|dd|perl|python|node|ruby|rsync|find|trash|truncate|touch|install|sponge|direnv|orca|ship-init|ship-merge|worktree|teardown|agent-harness|cleanup|prune-backups|prune-branches|xargs|pushd|popd|<|>|\$|\{|`|\\'
 # Git Bash's =~ walks a multi-megabyte subject even when the only hit is a
 # backslash inside quotes, and lowercasing that subject copies it. A 200K-line
 # quoted echo then misses the 1500ms budget before the quote walker starts.
@@ -62,7 +62,7 @@ GG_FAST_RE='git|gh|rm|mv|cp|ln|tee|sed|dd|perl|python|node|ruby|rsync|find|trash
 GG_HUGE='
 BEGIN {
   RS = "\034"
-  word = "git|gh|rm|mv|cp|ln|tee|sed|dd|perl|python|node|ruby|rsync|find|trash|truncate|touch|install|sponge|direnv|orca|ship-init|ship-merge|worktree|teardown|agent-harness|cleanup|prune-backups|xargs|pushd|popd"
+  word = "git|gh|rm|mv|cp|ln|tee|sed|dd|perl|python|node|ruby|rsync|find|trash|truncate|touch|install|sponge|direnv|orca|ship-init|ship-merge|worktree|teardown|agent-harness|cleanup|prune-backups|prune-branches|xargs|pushd|popd"
   prot = "\\.claude/|\\.github/|\\.opencode/|\\.git/agent-harness/|\\.agent-harness/goals-foreign|goal\\.json|autonomy\\.on|opencode\\.jsonc|AGENTS\\.md|CLAUDE\\.md|agents\\.md|claude\\.md|\\.envrc|tools/agent-harness/|tools/ci/|rmtree|rm_rf|rmSync|remove_tree|rmdir"
 }
 function outside_bad(t) {
@@ -202,7 +202,7 @@ deny_harness_cmd() { emit deny "Blocked by git-guard: agent-harness ship-init an
 deny_harness_chain() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree must run alone, not after a cd prefix or in a && ; | chain. They act on the session's working directory; for another repo, end the command with --repo <absolute path of its checkout>."; }
 deny_cleanup_shape() { emit deny "Blocked by git-guard: cleanup takes exactly \`agent-harness cleanup <pr> [--keep-branch]\`: a PR number, then optionally --keep-branch, and no other flag (no --confirmed, no --help)."; }
 deny_shell_flags() { emit deny "Blocked by git-guard: run the harness script without shell options (no -x, -e, -o, +O or similar before it)."; }
-deny_prune_shape() { emit deny "Blocked by git-guard: prune-backups takes exactly \`agent-harness prune-backups [--confirmed]\`: no other argument."; }
+deny_prune_shape() { emit deny "Blocked by git-guard: $PRUNE_NAME takes exactly \`agent-harness $PRUNE_NAME [--confirmed]\`: no other argument."; }
 deny_alias() { emit deny "Blocked by git-guard: git aliases can smuggle worktree removal; do not define or pass alias.* settings."; }
 deny_branch_delete() {
   local a
@@ -1049,34 +1049,36 @@ check_cleanup() {
   return 0
 }
 
-# check_prune_backups <has_assign> <c0> args...: the harness's own way to retire leftover backup/* branches.
-# Only the plain `agent-harness` wrapper or an installed copy of the script may run it: a repo-local copy could be edited.
+# check_prune <prune-backups|prune-branches> <has_assign> <c0> args...: the harness's own ways to retire leftover
+# backup/* branches and merged local branches. Only the plain `agent-harness` wrapper or an installed copy of the script
+# may run them: a repo-local copy could be edited.
 prune_entry() {
   case "$1" in
-    "$HOME/.claude/scripts/agent-harness/prune-backups.sh" | \~/.claude/scripts/agent-harness/prune-backups.sh) return 0 ;;
-    "$HOME/.config/opencode/scripts/agent-harness/prune-backups.sh" | \~/.config/opencode/scripts/agent-harness/prune-backups.sh) return 0 ;;
-    "$HOME/.local/share/fmflurry-harness/scripts/agent-harness/prune-backups.sh" | \~/.local/share/fmflurry-harness/scripts/agent-harness/prune-backups.sh) return 0 ;;
+    "$HOME/.claude/scripts/agent-harness/$PRUNE_NAME.sh" | \~/.claude/scripts/agent-harness/$PRUNE_NAME.sh) return 0 ;;
+    "$HOME/.config/opencode/scripts/agent-harness/$PRUNE_NAME.sh" | \~/.config/opencode/scripts/agent-harness/$PRUNE_NAME.sh) return 0 ;;
+    "$HOME/.local/share/fmflurry-harness/scripts/agent-harness/$PRUNE_NAME.sh" | \~/.local/share/fmflurry-harness/scripts/agent-harness/$PRUNE_NAME.sh) return 0 ;;
   esac
   return 1
 }
-check_prune_backups() {
-  local has_assign="$1" c0="$2"; shift 2
+check_prune() {
+  PRUNE_NAME="$1"
+  local has_assign="$2" c0="$3"; shift 3
   local rest=()
   case "$c0" in
     bash | sh | zsh | dash)
-      ! shell_flag_run prune-backups.sh "$@" || deny_shell_flags
+      ! shell_flag_run "$PRUNE_NAME.sh" "$@" || deny_shell_flags
       case "${1##*/}" in
-        prune-backups.sh) prune_entry "$1" || deny_prune_shape ;;
-        agent-harness.sh) [ "${2:-}" = prune-backups ] || return 1; deny_prune_shape ;;
+        "$PRUNE_NAME.sh") prune_entry "$1" || deny_prune_shape ;;
+        agent-harness.sh) [ "${2:-}" = "$PRUNE_NAME" ] || return 1; deny_prune_shape ;;
         *) return 1 ;;
       esac
       shift; rest=("$@") ;;
     agent-harness)
-      [ "${1:-}" = prune-backups ] || return 1
+      [ "${1:-}" = "$PRUNE_NAME" ] || return 1
       case "$RAW0" in agent-harness | "$HOME/.local/bin/agent-harness" | \~/.local/bin/agent-harness) ;; *) deny_prune_shape ;; esac
       shift; rest=("$@") ;;
-    agent-harness.sh) [ "${1:-}" = prune-backups ] || return 1; deny_prune_shape ;;
-    prune-backups.sh) prune_entry "$RAW0" || deny_prune_shape; rest=("$@") ;;
+    agent-harness.sh) [ "${1:-}" = "$PRUNE_NAME" ] || return 1; deny_prune_shape ;;
+    "$PRUNE_NAME.sh") prune_entry "$RAW0" || deny_prune_shape; rest=("$@") ;;
     *) return 1 ;;
   esac
   [ "$has_assign" = 0 ] || deny_harness_env
@@ -1674,7 +1676,7 @@ function joinrec(rec, more,   L, n, p, ch, m, lim, i, c, del) {
 BEGIN {
   n = split("if then elif else do while until ! { ( builtin eval env sudo command exec nice nohup xargs timeout time bash sh zsh dash export cd pushd rm gh", ps, " ")
   for (i = 1; i <= n; i++) SK[ps[i]] = 1
-  n = split("if then elif else do while until ! { ( builtin eval env sudo command exec nice nohup xargs timeout time bash sh zsh dash agent-harness agent-harness.sh worktree-rm.sh teardown-merged-worktree.sh ship-init.sh ship-merge.sh cleanup.sh prune-backups.sh orca rm mv trash rsync find cd pushd gh direnv tee cp ln install truncate touch sed dd sponge", ps, " ")
+  n = split("if then elif else do while until ! { ( builtin eval env sudo command exec nice nohup xargs timeout time bash sh zsh dash agent-harness agent-harness.sh worktree-rm.sh teardown-merged-worktree.sh ship-init.sh ship-merge.sh cleanup.sh prune-backups.sh prune-branches.sh orca rm mv trash rsync find cd pushd gh direnv tee cp ln install truncate touch sed dd sponge", ps, " ")
   for (i = 1; i <= n; i++) LK[ps[i]] = 1
   n = split("push reset branch update-ref send-pack commit checkout restore config worktree remote", ps, " ")
   for (i = 1; i <= n; i++) GD[ps[i]] = 1
@@ -2272,7 +2274,7 @@ while [ "$LI" -lt "$nlines" ]; do
 
   if [ "$pref" = 1 ] && [ "$c0" != git ] && worktree_destroy_in "${ct[@]}"; then deny_worktree; fi
   case "$c0" in
-    bash | sh | zsh | dash | agent-harness | agent-harness.sh | worktree-rm.sh | teardown-merged-worktree.sh | ship-init.sh | ship-merge.sh | cleanup.sh | prune-backups.sh) HC=1 ;;
+    bash | sh | zsh | dash | agent-harness | agent-harness.sh | worktree-rm.sh | teardown-merged-worktree.sh | ship-init.sh | ship-merge.sh | cleanup.sh | prune-backups.sh | prune-branches.sh) HC=1 ;;
     *) HC=0 ;;
   esac
   if [ "$HC" = 1 ] && check_worktree_rm "$has_assign" "$c0" "${ct[@]:1}"; then continue; fi
@@ -2300,7 +2302,8 @@ while [ "$LI" -lt "$nlines" ]; do
 
   if [ "$HC" = 1 ] && check_ship_merge "$has_assign" "$c0" "${ct[@]:1}"; then continue; fi
   if [ "$HC" = 1 ] && check_cleanup "$has_assign" "$c0" "${ct[@]:1}"; then continue; fi
-  if [ "$HC" = 1 ] && check_prune_backups "$has_assign" "$c0" "${ct[@]:1}"; then continue; fi
+  if [ "$HC" = 1 ] && check_prune prune-backups "$has_assign" "$c0" "${ct[@]:1}"; then continue; fi
+  if [ "$HC" = 1 ] && check_prune prune-branches "$has_assign" "$c0" "${ct[@]:1}"; then continue; fi
 
   case "$c0" in
     git)

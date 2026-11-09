@@ -338,7 +338,7 @@ export function portableHookScript(text) {
   return text
     .replaceAll('$HOME/.claude/state/notify', `${PORTABLE_STATE}/state/notify`)
     .replaceAll('$HOME/.claude/session-env', `${PORTABLE_STATE}/session-env`)
-    .replace(/\\~\/\.claude\/scripts\/agent-harness\/([a-z-]+\.sh)/g, '"${CURSOR_PLUGIN_ROOT:-/nonexistent}/scripts/agent-harness/$1"')
+    .replace(/\\~\/\.claude\/scripts\/agent-harness\/([a-z-]+\.sh|\$[A-Z_]+\.sh)/g, '"${CURSOR_PLUGIN_ROOT:-/nonexistent}/scripts/agent-harness/$1"')
     .replaceAll('$HOME/.claude/scripts/agent-harness', '${CURSOR_PLUGIN_ROOT:-/nonexistent}/scripts/agent-harness')
     .replaceAll('"$HOME/.claude/scripts" "$HOME/.config/opencode/scripts" ', '');
 }

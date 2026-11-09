@@ -2,6 +2,10 @@
 
 Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cursor-plugin/config.json` and is copied into `.cursor-plugin/plugin.json` by `node scripts/build-cursor-plugin.mjs`.
 
+## [0.4.43] - 2026-11-09
+
+- New `agent-harness prune-branches [--confirmed]` deletes local branches other than `backup/*` whose tip is already in `origin/<base>`, judged against the sha origin reports at run time (`git ls-remote`), so a rewritten local ref proves nothing, and that no goal file or registry entry claims. It keeps the base and current branch, branches checked out in a worktree, symbolic refs, and branches still at the tip of `origin/<base>`. It never touches remotes and only lists what it would do without `--confirmed`. The git guard allows exactly that shape.
+
 ## [0.4.42] - 2026-11-09
 
 - `ship-init`, `ship-merge`, `cleanup`, `teardown-merged-worktree`, `worktree-rm` and `goal` accept a trailing `--repo <absolute path>`, so a session in one repo can start and manage a goal worktree of another repo with or without Orca. The guard allows exactly that trailing shape; cd and env prefixes stay denied.
