@@ -771,6 +771,33 @@ check "prune-backups bad flag: exits 2" test $rc -eq 2
 rm -f "$PREG/gone.json"; git -C "$TMP/work" branch -q -D backup/old-unmerged backup/listed backup/reg backup/Foo_bar
 git -C "$TMP/work" update-ref -d refs/harness/backups/old-unmerged
 
+# prune-backups attacks: a symbolic ref under backup/ must not delete its target, and a local ref named origin/<base>
+# must not fake the merge proof.
+cfresh; rm -rf "$PREG"
+git -C "$TMP/work" branch -q keepme origin/master
+git -C "$TMP/work" checkout -q -b side && ( cd "$TMP/work" && echo s >s && git add s && git commit -qm S ) >/dev/null 2>&1
+PSIDE="$(git -C "$TMP/work" rev-parse HEAD)"; git -C "$TMP/work" checkout -q feat
+git -C "$TMP/work" symbolic-ref refs/heads/backup/evil refs/heads/keepme
+git -C "$TMP/work" symbolic-ref refs/heads/backup/evil-side refs/heads/side
+prune; rc=$?
+check "prune-backups dry run on a symbolic ref: says kept" grep -q '^prune-backups: backup backup/evil kept (symbolic ref)' "$FX/out"
+prune --confirmed; rc=$?
+check "prune-backups symbolic ref: exits 0" test $rc -eq 0
+check "prune-backups symbolic ref to a merged branch: target kept" local_exists keepme
+check "prune-backups symbolic ref to an unmerged branch: target kept" test "$(git -C "$TMP/work" rev-parse -q --verify refs/heads/side)" = "$PSIDE"
+check "prune-backups symbolic ref: says kept" grep -q '^prune-backups: backup backup/evil-side kept (symbolic ref)' "$FX/out"
+check "prune-backups symbolic ref: nothing archived" test -z "$(git -C "$TMP/work" for-each-ref refs/harness/backups/evil refs/harness/backups/evil-side)"
+check "prune-backups symbolic ref: shared helper refuses it too" bash -c 'cd "$1" && . "$2/lib.sh" && ! backup_retire "$1" backup/evil 1 "$(git -C "$1" rev-parse refs/heads/keepme)" && git -C "$1" show-ref --verify --quiet refs/heads/keepme' _ "$TMP/work" "$H"
+git -C "$TMP/work" symbolic-ref --delete refs/heads/backup/evil; git -C "$TMP/work" symbolic-ref --delete refs/heads/backup/evil-side
+git -C "$TMP/work" checkout -q -b backup/faked && ( cd "$TMP/work" && echo f >f && git add f && git commit -qm F ) >/dev/null 2>&1
+PFAKE="$(git -C "$TMP/work" rev-parse HEAD)"; git -C "$TMP/work" checkout -q feat
+git -C "$TMP/work" tag origin/master "$PFAKE"
+prune --confirmed; rc=$?
+check "prune-backups with a tag named origin/master: exits 0" test $rc -eq 0
+check "prune-backups with a tag named origin/master: unmerged backup archived, not just deleted" test "$(git -C "$TMP/work" rev-parse -q --verify refs/harness/backups/faked)" = "$PFAKE"
+check "prune-backups with a tag named origin/master: says archived" grep -q '^prune-backups: backup backup/faked archived to refs/harness/backups/faked' "$FX/out"
+git -C "$TMP/work" tag -d origin/master >/dev/null; git -C "$TMP/work" update-ref -d refs/harness/backups/faked; git -C "$TMP/work" branch -q -D keepme side
+
 # prune-backups edge cases: no registry dir, a corrupt list, detached HEAD, no base, linked worktrees.
 cfresh; rm -rf "$PREG"
 git -C "$TMP/work" branch -q backup/solo origin/master

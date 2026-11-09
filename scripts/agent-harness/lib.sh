@@ -360,10 +360,12 @@ BACKUP_RE='^backup/[a-z0-9]+(-[a-z0-9]+)*$'
 backup_retire() {
   local co="$1" b="$2" merged="$3" tip="$4" aref have inuse=""
   [[ "$tip" =~ ^[0-9a-f]{40,64}$ ]] || { echo "backup $b kept (unreadable)"; return 1; }
+  # A symbolic ref would make the delete remove its target branch.
+  if git -C "$co" symbolic-ref -q "refs/heads/$b" >/dev/null 2>&1; then echo "backup $b kept (symbolic ref)"; return 1; fi
   if git -C "$co" worktree list --porcelain 2>/dev/null | grep -qxF "branch refs/heads/$b"; then inuse=1; fi
   if [ -n "$merged" ]; then
     if [ -n "$inuse" ]; then echo "backup $b kept (checked out in a worktree)"; return 1; fi
-    if git -C "$co" update-ref -d "refs/heads/$b" "$tip" 2>/dev/null; then echo "backup $b deleted"; return 0; fi
+    if git -C "$co" update-ref --no-deref -d "refs/heads/$b" "$tip" 2>/dev/null; then echo "backup $b deleted"; return 0; fi
     echo "backup $b kept (delete failed)"; return 1
   fi
   aref="refs/harness/backups/${b#backup/}"
@@ -371,7 +373,7 @@ backup_retire() {
   if [ -n "$have" ] && [ "$have" != "$tip" ]; then echo "backup $b kept (archive name $aref is taken)"; return 1; fi
   if [ -z "$have" ] && ! git -C "$co" update-ref "$aref" "$tip" ""; then echo "backup $b kept (archive failed)"; return 1; fi
   if [ -n "$inuse" ]; then echo "backup $b archived to $aref; branch kept (checked out in a worktree)"; return 1; fi
-  if git -C "$co" update-ref -d "refs/heads/$b" "$tip" 2>/dev/null; then echo "backup $b archived to $aref"; return 0; fi
+  if git -C "$co" update-ref --no-deref -d "refs/heads/$b" "$tip" 2>/dev/null; then echo "backup $b archived to $aref"; return 0; fi
   echo "backup $b archived to $aref; branch kept (delete failed)"; return 1
 }
 

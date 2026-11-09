@@ -119,7 +119,7 @@ if [ -n "$bsrc" ]; then
     { [ "$b" != "$base" ] && [ "$b" != "$current" ]; } || continue
     g show-ref --verify --quiet "refs/heads/$b" || continue
     btip="$(g rev-parse "refs/heads/$b")" merged=""
-    if g merge-base --is-ancestor "$btip" "$oid" 2>/dev/null || g merge-base --is-ancestor "$btip" "origin/$base" 2>/dev/null; then merged=1; fi
+    if g merge-base --is-ancestor "$btip" "$oid" 2>/dev/null || g merge-base --is-ancestor "$btip" "refs/remotes/origin/$base" 2>/dev/null; then merged=1; fi
     if msg="$(backup_retire "$CO" "$b" "$merged" "$btip")"; then done_b+=("$b"); fi
     say "$msg"
   done <<<"$blist"

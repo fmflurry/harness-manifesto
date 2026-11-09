@@ -21,7 +21,9 @@ g rev-parse --git-dir >/dev/null 2>&1 || refuse "not a git repository"
 
 base="$(base_branch 2>/dev/null)" || base="$(g symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)" || base=""
 base="${base#origin/}"
-[ -n "$base" ] || refuse "cannot resolve the base branch"
+{ [ -n "$base" ] && git check-ref-format --branch "$base" >/dev/null 2>&1; } || refuse "cannot resolve the base branch"
+# Fully qualified: a local tag or branch named origin/<base> must not stand in for the remote-tracking ref.
+base_ref="refs/remotes/origin/$base"
 current="$(g rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 
 # Every backup a goal file (any worktree's, all kept in the main checkout's state dir) or a registry entry lists stays
@@ -47,15 +49,17 @@ while IFS= read -r b; do
   [[ "$b" =~ $BACKUP_RE ]] || continue
   { [ "$b" != "$base" ] && [ "$b" != "$current" ]; } || continue
   n=$((n + 1))
+  if g symbolic-ref -q "refs/heads/$b" >/dev/null 2>&1; then say "backup $b kept (symbolic ref)"; kept=$((kept + 1)); continue; fi
   full="$(g rev-parse "refs/heads/$b")"
   tip="${full:0:7}"
   if grep -qxF "$b" <<<"$listed"; then say "backup $b @ $tip kept (listed by a goal)"; kept=$((kept + 1)); continue; fi
   merged=""
-  if g merge-base --is-ancestor "$full" "origin/$base" 2>/dev/null; then merged=1; fi
+  if g merge-base --is-ancestor "$full" "$base_ref" 2>/dev/null; then merged=1; fi
   if [ -z "$confirmed" ]; then
     aref="refs/harness/backups/${b#backup/}"
     have="$(g rev-parse -q --verify "$aref" 2>/dev/null || true)"
-    if [ -n "$merged" ]; then say "backup $b @ $tip would be deleted (in origin/$base)"
+    if g worktree list --porcelain 2>/dev/null | grep -qxF "branch refs/heads/$b"; then say "backup $b @ $tip would be kept (checked out in a worktree)"
+    elif [ -n "$merged" ]; then say "backup $b @ $tip would be deleted (in origin/$base)"
     elif [ -n "$have" ] && [ "$have" != "$full" ]; then say "backup $b @ $tip would be kept (archive name $aref is taken)"
     else say "backup $b @ $tip would be archived to $aref, then deleted"; fi
     continue

@@ -2,9 +2,10 @@
 
 Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cursor-plugin/config.json` and is copied into `.cursor-plugin/plugin.json` by `node scripts/build-cursor-plugin.mjs`.
 
-## [0.4.41] - 2026-11-08
+## [0.4.41] - 2026-11-09
 
-- New `agent-harness prune-backups [--confirmed]` retires leftover `backup/*` branches that no goal file or registry entry lists, such as those left by goals torn down before 0.4.40. A backup already in `origin/<base>` is deleted; any other is archived to `refs/harness/backups/<name>` first (create-only, a taken name keeps the branch). Without `--confirmed` it only lists what it would do. The git guard allows exactly `agent-harness prune-backups [--confirmed]`; cleanup and prune-backups share one archive helper.
+- New `agent-harness prune-backups [--confirmed]` retires leftover `backup/*` branches that no goal file or registry entry lists, such as those left by goals torn down before 0.4.40. A backup already in `refs/remotes/origin/<base>` is deleted; any other is archived to `refs/harness/backups/<name>` first (create-only, a taken name keeps the branch). A symbolic ref and a branch checked out in a worktree are kept. Without `--confirmed` it only lists what it would do. The git guard allows exactly `agent-harness prune-backups [--confirmed]`; cleanup and prune-backups share one archive helper.
+- The guard now denies shell options (such as `bash -x`) in front of a harness script. `git branch -D` on a `backup/*` branch names prune-backups in its denial; other branch deletions keep the generic text.
 - Known gap: the guard does not yet see through command substitution or stdin-fed shells in front of harness scripts.
 
 ## [0.4.40] - 2026-11-08

@@ -33,9 +33,11 @@ unresolved threads, a `ship-merge` refusal) and loop. Escalate only a human-only
 - goal worktree creation through `agent-harness ship-init` (the init step of `/ship`; `orca worktree create ...` in an Orca-managed repo)
 - `agent-harness cleanup <pr> [--keep-branch]` (also run by `agent-harness ship-merge` for an unregistered PR), only after the PR is MERGED:
   deletes that PR's own head branch (remote and local) and the goal's recorded backup branches. Nothing else.
-- `agent-harness prune-backups [--confirmed]`: retires `backup/*` branches that no goal file or registry entry lists
-  (left by goals torn down before cleanup tracked backups). One already in `origin/<base>` is deleted; any other is
-  archived to `refs/harness/backups/<name>` first, and a taken archive name keeps the branch. Nothing else.
+- `agent-harness prune-backups [--confirmed]`: retires local `backup/<kebab-name>` branches that no goal file or registry
+  entry lists (left by goals torn down before cleanup tracked backups), including one made by hand. It skips a symbolic
+  ref and a branch checked out in any worktree. One already in `refs/remotes/origin/<base>` is deleted; any other is
+  archived to `refs/harness/backups/<name>` first (the branch reflog is not kept), and a taken archive name keeps the
+  branch. Nothing else.
 - `agent-harness teardown-merged-worktree <pr>` (run by `agent-harness ship-merge` for a registered goal), only after the PR is MERGED:
   removes the registered goal worktree of that PR, then its remote and local head branch, then its registry file. It runs
   only when every check in the worktree destruction rule passes, and it never touches the main checkout. Nothing else.
