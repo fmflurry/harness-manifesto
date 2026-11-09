@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>agent-harness prune-backups</title>
+<style>
+body{background:#FAF6EE;font-family:Georgia,'Times New Roman',serif;color:#2b2622;margin:0;padding:32px}
+h1{font-size:26px;margin:0 0 6px}p.sub{margin:0 0 20px;color:#6b5f55}
+.flow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 18px;font-size:14px}
+.step{background:#fff;border:1px solid #e4dccf;border-radius:10px;padding:8px 10px}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card h2{font-size:16px;margin:0 0 8px}ul{margin:0;padding-left:18px;font-size:14px;line-height:1.55}
+.ok{color:#2f7a3b}.risk{color:#9a5a12}code{font-size:13px;background:#f1ebe0;padding:1px 4px;border-radius:4px}
+@media (max-width:820px){.cols{grid-template-columns:1fr}}
+</style></head><body>
+<h1><code>agent-harness prune-backups [--confirmed]</code></h1>
+<p class="sub">0.4.41. Retires leftover <code>backup/*</code> branches that no goal file or registry entry lists, such as the 23 orbit had to delete by hand.</p>
+<div class="flow">
+<span class="step">each <code>backup/*</code> matching the backup name rule</span>→
+<span class="step">listed by a goal or the registry, or the current or base branch? <b>keep</b></span>→
+<span class="step">in <code>origin/&lt;base&gt;</code>? <b>delete</b></span>→
+<span class="step">else <b>archive</b> to <code>refs/harness/backups/&lt;name&gt;</code> (create-only), then delete</span>
+</div>
+<div class="cols">
+<div class="card"><h2>Files</h2><ul>
+<li><code>prune-backups.sh</code> (new), dispatcher and usage</li>
+<li><code>lib.sh</code>: <code>backup_retire</code>, now shared with <code>cleanup.sh</code></li>
+<li>git guard: allows exactly <code>agent-harness prune-backups [--confirmed]</code> or an installed copy of the script; a repo-local script or wrapper is denied</li>
+<li>Rules, skills, git-specialist prompts, READMEs EN and FR, for Claude Code, OpenCode and the Cursor plugin</li></ul></div>
+<div class="card"><h2>Tests</h2><ul class="ok">
+<li>Suite in a clean env: 2469 passed / 75 failed, against master 2405 / 75 with the same 75 failures</li>
+<li>New: the dry run changes nothing; merged deleted; unmerged archived; taken archive name keeps the branch; listed by a goal or the registry kept; non-matching name ignored; no registry dir; corrupt list refuses; detached HEAD; no base refuses; checked out in a linked worktree; listed by another worktree's goal; guard shapes and launchers</li>
+<li>Parity ok; kpi and variant tests the same as master</li></ul></div>
+<div class="card"><h2>Risks</h2><ul class="risk">
+<li>Dry run by default: <code>--confirmed</code> is needed to act</li>
+<li>An archive is never moved; a taken name keeps the branch</li><li>Branches are deleted against the tip that was read (compare-and-swap)</li>
+<li>Only names matching <code>backup/[a-z0-9-]</code> are touched</li></ul></div>
+</div></body></html>

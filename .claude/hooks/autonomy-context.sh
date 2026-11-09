@@ -12,7 +12,7 @@ goal_scope_select "${CLAUDE_PROJECT_DIR:-$PWD}" "$PWD"
 goal_bind_file "$STATE_DIR"
 LOG="$(goal_decisions_path "$STATE_DIR")"
 cat <<MSG
-AUTONOMOUS MODE ON: never ask the user; decide from AGENTS.md + repo evidence; log every assumption to $LOG (show-your-work format) and to the PR's \`## Locked decisions\`; merge ONLY via \`agent-harness ship-merge <pr>\`; this is the documented exception to the confirm-irreversible rule; branches are deleted only by \`agent-harness ship-merge\`/\`agent-harness cleanup <pr>\` after merge; record rebase backups with \`agent-harness goal backup-add <name>\`; continue until the goal is done.
+AUTONOMOUS MODE ON: never ask the user; decide from AGENTS.md + repo evidence; log every assumption to $LOG (show-your-work format) and to the PR's \`## Locked decisions\`; merge ONLY via \`agent-harness ship-merge <pr>\`; this is the documented exception to the confirm-irreversible rule; branches are deleted only by \`agent-harness ship-merge\`/\`agent-harness cleanup <pr>\` after merge, and leftover backup/* branches by \`agent-harness prune-backups --confirmed\`; record rebase backups with \`agent-harness goal backup-add <name>\`; continue until the goal is done.
 MSG
 if [ -f "$GOAL_FILE" ]; then
   jq -r '"Goal: \(.goal) | status=\(.status) pr=\(.pr // "none") fixes=\(.fix_iterations)/\(.max_fix_iterations)"' "$GOAL_FILE" 2>/dev/null || true

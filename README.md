@@ -1022,8 +1022,8 @@ the branch, and the registry (`skills/ship/SKILL.md`, Blocked path).
 - Never remove a worktree with raw `git worktree remove`. `agent-harness worktree-rm <path> --confirmed` removes a
   clean worktree whose branch is merged (including a squash merge detected by `gh pr view --json state`).
   `agent-harness teardown-merged-worktree <pr>` removes the registered goal worktree after that PR is MERGED, in
-  autonomous mode, and deletes its branches and registry. Never delete a branch except through that teardown or
-  `agent-harness cleanup`.
+  autonomous mode, and deletes its branches and registry. Never delete a branch except through that teardown,
+  `agent-harness cleanup`, or `agent-harness prune-backups` for leftover `backup/*` branches.
 - Never merge a PR that matches `protectedPaths` while the flag is on. A human passes `--confirmed`.
 - Never add a label, post a comment, or create a status to get past a `ship-merge` refusal.
 - Never notify for progress. The run does not trigger builds or releases.
@@ -1038,6 +1038,7 @@ agent-harness ship-init <type> <scope> <desc> --goal "<text>"  # first action of
 agent-harness goal decisions-path        # this checkout's decision log: .claude/state/decisions/<slug>.tsv per goal (created by ship-init, archived to decisions/archive/ by teardown), else .claude/state/decisions.tsv
 agent-harness teardown-merged-worktree <pr>  # after MERGED: remove the registered goal worktree, branches and registry (run by ship-merge)
 agent-harness cleanup <pr> [--keep-branch] [--no-checkout]  # after MERGED: delete the PR's head branch and goal backups (unregistered PRs; also run by ship-merge; teardown passes --no-checkout)
+agent-harness prune-backups [--confirmed]  # leftover backup/* branches no goal or registry lists: delete those in origin/<base>, archive the rest under refs/harness/backups/ (dry run without --confirmed)
 ```
 
 The `ship` skill (`skills/ship/`) owns the stages, and the `autonomous` skill runs the toggle. The behaviour rules are
@@ -1478,6 +1479,7 @@ agent-harness ship-init <type> <scope> <desc> --goal "<text>"  # première actio
 agent-harness goal decisions-path        # journal de décisions de ce checkout : .claude/state/decisions/<slug>.tsv par goal (créé par ship-init, archivé dans decisions/archive/ par le teardown), sinon .claude/state/decisions.tsv
 agent-harness teardown-merged-worktree <pr>  # après MERGED : retire le worktree enregistré, les branches et le registre (lancé par ship-merge)
 agent-harness cleanup <pr> [--keep-branch]  # après MERGED : supprime la branche de la PR et les backups du goal, archive sous `refs/harness/backups/` ceux que la fusion ne contient pas (PR non enregistrées ; aussi lancé par ship-merge)
+agent-harness prune-backups [--confirmed]  # branches backup/* orphelines (aucun goal ni registre) : supprime celles déjà dans origin/<base>, archive les autres sous refs/harness/backups/ (simulation sans --confirmed)
 ```
 
 Le skill `ship` (`skills/ship/`) gère les étapes, et le skill `autonomous` pilote la bascule. Les règles de comportement sont dans `.claude/rules/common/autonomy.md` (Claude Code) et `instructions/autonomy.md` (OpenCode).

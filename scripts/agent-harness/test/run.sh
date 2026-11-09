@@ -729,6 +729,123 @@ check "cleanup archive name taken: second branch kept" test "$(git -C "$TMP/work
 check "cleanup archive name taken: says so" grep -q '^cleanup: backup backup/unmerged kept (archive name refs/harness/backups/unmerged is taken)' "$FX/out"
 git -C "$TMP/work" branch -q -D backup/unmerged
 
+# ---- prune-backups: leftover backup/* branches no goal or registry lists
+prune() { ( cd "$TMP/work" && CLAUDE_PROJECT_DIR="$TMP/work" bash "$H/prune-backups.sh" "$@" ) >"$FX/out" 2>&1; }
+cfresh; cgoal set g >/dev/null; CG="$(cgoal_file)"
+git -C "$TMP/work" branch -q backup/old-merged origin/master
+git -C "$TMP/work" branch -q backup/listed origin/master
+git -C "$TMP/work" branch -q backup/reg origin/master
+git -C "$TMP/work" branch -q backup/Foo_bar origin/master
+git -C "$TMP/work" checkout -q -b backup/old-unmerged && ( cd "$TMP/work" && echo p >p && git add p && git commit -qm P ) >/dev/null 2>&1
+PUN="$(git -C "$TMP/work" rev-parse HEAD)"; git -C "$TMP/work" checkout -q feat
+jq '.backup_branches=["backup/listed"]' "$CG" >"$FX/t" && mv "$FX/t" "$CG"
+PREG="$(git -C "$TMP/work" rev-parse --path-format=absolute --git-common-dir)/agent-harness/goals"
+mkdir -p "$PREG" && echo '{"slug":"gone","backup_branches":["backup/reg"]}' >"$PREG/gone.json"
+heads_before="$(git -C "$TMP/work" for-each-ref --format='%(refname) %(objectname)' refs/heads refs/harness)"
+prune; rc=$?
+check "prune-backups dry run: exits 0" test $rc -eq 0
+check "prune-backups dry run: changes no ref" test "$(git -C "$TMP/work" for-each-ref --format='%(refname) %(objectname)' refs/heads refs/harness)" = "$heads_before"
+check "prune-backups dry run: says it would delete the merged one" grep -q '^prune-backups: backup backup/old-merged @ [0-9a-f]* would be deleted' "$FX/out"
+check "prune-backups dry run: says it would archive the unmerged one" grep -q '^prune-backups: backup backup/old-unmerged @ [0-9a-f]* would be archived to refs/harness/backups/old-unmerged' "$FX/out"
+check "prune-backups dry run: asks for --confirmed" grep -q 'dry run; pass --confirmed to act' "$FX/out"
+prune --confirmed; rc=$?
+check "prune-backups: exits 0" test $rc -eq 0
+check "prune-backups: merged backup deleted" bash -c '! git -C "$1" show-ref --verify --quiet refs/heads/backup/old-merged' _ "$TMP/work"
+check "prune-backups: merged backup not archived" bash -c '! git -C "$1" show-ref --verify --quiet refs/harness/backups/old-merged' _ "$TMP/work"
+check "prune-backups: unmerged backup leaves the branch list" bash -c '! git -C "$1" show-ref --verify --quiet refs/heads/backup/old-unmerged' _ "$TMP/work"
+check "prune-backups: unmerged backup archived with its tip" test "$(git -C "$TMP/work" rev-parse -q --verify refs/harness/backups/old-unmerged)" = "$PUN"
+check "prune-backups: backup listed by a goal kept" local_exists backup/listed
+check "prune-backups: backup listed by the registry kept" local_exists backup/reg
+check "prune-backups: says a listed backup is kept" grep -q '^prune-backups: backup backup/listed @ [0-9a-f]* kept (listed by a goal)' "$FX/out"
+check "prune-backups: non-matching name ignored" local_exists backup/Foo_bar
+check "prune-backups: current branch untouched" test "$(cur_branch)" = feat
+git -C "$TMP/work" checkout -q -b backup/old-unmerged && ( cd "$TMP/work" && echo q >q && git add q && git commit -qm Q ) >/dev/null 2>&1
+PUN2="$(git -C "$TMP/work" rev-parse HEAD)"; git -C "$TMP/work" checkout -q feat
+prune --confirmed; rc=$?
+check "prune-backups archive name taken: exits 0" test $rc -eq 0
+check "prune-backups archive name taken: first archive kept" test "$(git -C "$TMP/work" rev-parse -q --verify refs/harness/backups/old-unmerged)" = "$PUN"
+check "prune-backups archive name taken: branch kept" test "$(git -C "$TMP/work" rev-parse -q --verify refs/heads/backup/old-unmerged)" = "$PUN2"
+check "prune-backups archive name taken: says so" grep -q '^prune-backups: backup backup/old-unmerged kept (archive name refs/harness/backups/old-unmerged is taken)' "$FX/out"
+out="$(cd "$TMP/work" && CLAUDE_PROJECT_DIR="$TMP/work" bash "$H/prune-backups.sh" --force 2>&1)"; rc=$?
+check "prune-backups bad flag: exits 2" test $rc -eq 2
+rm -f "$PREG/gone.json"; git -C "$TMP/work" branch -q -D backup/old-unmerged backup/listed backup/reg backup/Foo_bar
+git -C "$TMP/work" update-ref -d refs/harness/backups/old-unmerged
+
+# prune-backups attacks: a symbolic ref under backup/ must not delete its target, and a local ref named origin/<base>
+# must not fake the merge proof.
+cfresh; rm -rf "$PREG"
+git -C "$TMP/work" branch -q keepme origin/master
+git -C "$TMP/work" checkout -q -b side && ( cd "$TMP/work" && echo s >s && git add s && git commit -qm S ) >/dev/null 2>&1
+PSIDE="$(git -C "$TMP/work" rev-parse HEAD)"; git -C "$TMP/work" checkout -q feat
+git -C "$TMP/work" symbolic-ref refs/heads/backup/evil refs/heads/keepme
+git -C "$TMP/work" symbolic-ref refs/heads/backup/evil-side refs/heads/side
+prune; rc=$?
+check "prune-backups dry run on a symbolic ref: says kept" grep -q '^prune-backups: backup backup/evil kept (symbolic ref)' "$FX/out"
+prune --confirmed; rc=$?
+check "prune-backups symbolic ref: exits 0" test $rc -eq 0
+check "prune-backups symbolic ref to a merged branch: target kept" local_exists keepme
+check "prune-backups symbolic ref to an unmerged branch: target kept" test "$(git -C "$TMP/work" rev-parse -q --verify refs/heads/side)" = "$PSIDE"
+check "prune-backups symbolic ref: says kept" grep -q '^prune-backups: backup backup/evil-side kept (symbolic ref)' "$FX/out"
+check "prune-backups symbolic ref: nothing archived" test -z "$(git -C "$TMP/work" for-each-ref refs/harness/backups/evil refs/harness/backups/evil-side)"
+check "prune-backups symbolic ref: shared helper refuses it too" bash -c 'cd "$1" && . "$2/lib.sh" && ! backup_retire "$1" backup/evil 1 "$(git -C "$1" rev-parse refs/heads/keepme)" && git -C "$1" show-ref --verify --quiet refs/heads/keepme' _ "$TMP/work" "$H"
+git -C "$TMP/work" symbolic-ref --delete refs/heads/backup/evil; git -C "$TMP/work" symbolic-ref --delete refs/heads/backup/evil-side
+git -C "$TMP/work" checkout -q -b backup/faked && ( cd "$TMP/work" && echo f >f && git add f && git commit -qm F ) >/dev/null 2>&1
+PFAKE="$(git -C "$TMP/work" rev-parse HEAD)"; git -C "$TMP/work" checkout -q feat
+git -C "$TMP/work" tag origin/master "$PFAKE"
+prune --confirmed; rc=$?
+check "prune-backups with a tag named origin/master: exits 0" test $rc -eq 0
+check "prune-backups with a tag named origin/master: unmerged backup archived, not just deleted" test "$(git -C "$TMP/work" rev-parse -q --verify refs/harness/backups/faked)" = "$PFAKE"
+check "prune-backups with a tag named origin/master: says archived" grep -q '^prune-backups: backup backup/faked archived to refs/harness/backups/faked' "$FX/out"
+git -C "$TMP/work" tag -d origin/master >/dev/null; git -C "$TMP/work" update-ref -d refs/harness/backups/faked; git -C "$TMP/work" branch -q -D keepme side
+
+# prune-backups edge cases: no registry dir, a corrupt list, detached HEAD, no base, linked worktrees.
+cfresh; rm -rf "$PREG"
+git -C "$TMP/work" branch -q backup/solo origin/master
+prune; rc=$?
+check "prune-backups no registry dir: dry run exits 0" test $rc -eq 0
+check "prune-backups no registry dir: dry run lists the backup" grep -q '^prune-backups: backup backup/solo @ [0-9a-f]* would be deleted' "$FX/out"
+prune --confirmed; rc=$?
+check "prune-backups no registry dir: exits 0" test $rc -eq 0
+check "prune-backups no registry dir: merged backup deleted" bash -c '! git -C "$1" show-ref --verify --quiet refs/heads/backup/solo' _ "$TMP/work"
+git -C "$TMP/work" branch -q backup/solo origin/master
+mkdir -p "$PREG" && echo '{' >"$PREG/bad.json"
+prune --confirmed; rc=$?
+check "prune-backups corrupt registry entry: refuses" test $rc -eq 1
+check "prune-backups corrupt registry entry: names the file" grep -q 'prune-backups refused: cannot read .*bad.json' "$FX/out"
+check "prune-backups corrupt registry entry: backup kept" local_exists backup/solo
+rm -f "$PREG/bad.json"
+git -C "$TMP/work" checkout -q --detach
+prune --confirmed; rc=$?
+check "prune-backups detached HEAD: exits 0" test $rc -eq 0
+check "prune-backups detached HEAD: merged backup deleted" bash -c '! git -C "$1" show-ref --verify --quiet refs/heads/backup/solo' _ "$TMP/work"
+git -C "$TMP/work" checkout -q feat
+git -C "$TMP/work" branch -q backup/solo origin/master
+: >"$FX/default_branch"; git -C "$TMP/work" remote set-head origin -d >/dev/null 2>&1
+prune --confirmed; rc=$?
+check "prune-backups no base: refuses" test $rc -eq 1
+check "prune-backups no base: says why" grep -q 'prune-backups refused: cannot resolve the base branch' "$FX/out"
+check "prune-backups no base: backup kept" local_exists backup/solo
+rm -f "$FX/default_branch"; git -C "$TMP/work" remote set-head origin master >/dev/null 2>&1
+git -C "$TMP/work" branch -q -D backup/solo
+git -C "$TMP/work" checkout -q -b backup/inuse && ( cd "$TMP/work" && echo i >i && git add i && git commit -qm I ) >/dev/null 2>&1
+PIN="$(git -C "$TMP/work" rev-parse HEAD)"; git -C "$TMP/work" checkout -q feat
+git -C "$TMP/work" worktree add -q "$TMP/pwt" backup/inuse >/dev/null 2>&1
+git -C "$TMP/work" worktree add -q -b feat-other "$TMP/pwt2" origin/master >/dev/null 2>&1
+git -C "$TMP/work" branch -q backup/other-goal origin/master
+( cd "$TMP/pwt2" && CLAUDE_PROJECT_DIR="$TMP/pwt2" bash "$H/goal.sh" set other >/dev/null )
+OG="$(cd "$TMP/pwt2" && CLAUDE_PROJECT_DIR="$TMP/pwt2" bash -c '. "$1/lib.sh"; printf "%s\n" "$GOAL_FILE"' _ "$H")"
+jq '.backup_branches=["backup/other-goal"]' "$OG" >"$FX/t" && mv "$FX/t" "$OG"
+prune --confirmed; rc=$?
+check "prune-backups linked worktree: exits 0" test $rc -eq 0
+check "prune-backups linked worktree: in-use backup archived" test "$(git -C "$TMP/work" rev-parse -q --verify refs/harness/backups/inuse)" = "$PIN"
+check "prune-backups linked worktree: in-use branch kept" test "$(git -C "$TMP/work" rev-parse -q --verify refs/heads/backup/inuse)" = "$PIN"
+check "prune-backups linked worktree: says it is checked out" grep -q '^prune-backups: backup backup/inuse archived to refs/harness/backups/inuse; branch kept (checked out in a worktree)' "$FX/out"
+check "prune-backups other worktree's goal: listed backup kept" local_exists backup/other-goal
+check "prune-backups other worktree's goal: says listed" grep -q '^prune-backups: backup backup/other-goal @ [0-9a-f]* kept (listed by a goal)' "$FX/out"
+rm -f "$OG"
+git -C "$TMP/work" worktree remove --force "$TMP/pwt" >/dev/null 2>&1; git -C "$TMP/work" worktree remove --force "$TMP/pwt2" >/dev/null 2>&1
+git -C "$TMP/work" branch -q -D backup/inuse backup/other-goal feat-other; git -C "$TMP/work" update-ref -d refs/harness/backups/inuse
+
 cfresh; mutate '.state="OPEN"' view.json; cleanup 5; rc=$?
 check "cleanup not merged: refused" test $rc -eq 1
 check "cleanup not merged: nothing deleted" no_delete
@@ -1119,9 +1236,21 @@ bash /Users/someone/.claude/scripts/agent-harness/cleanup.sh 5
 bash ~/.claude/scripts/agent-harness/cleanup.sh 5
 agent-harness ship-merge 5 --keep-branch
 agent-harness goal backup-add backup/feat-1
+agent-harness prune-backups
+agent-harness prune-backups --confirmed
+bash ~/.claude/scripts/agent-harness/prune-backups.sh --confirmed
 CMDS
 )"
 CLEAN_DENY_CMDS="$(cat <<'CMDS'
+agent-harness prune-backups --force
+agent-harness prune-backups --confirmed backup/x
+GH_BIN=/tmp/gh agent-harness prune-backups --confirmed
+prune-backups.sh --confirmed --force
+GH_BIN=/tmp/gh bash ~/.claude/scripts/agent-harness/prune-backups.sh --confirmed
+bash ./x/prune-backups.sh --confirmed junk
+bash ./x/prune-backups.sh --confirmed
+./agent-harness prune-backups --confirmed
+bash ~/.claude/scripts/agent-harness/agent-harness.sh prune-backups --confirmed
 GH_BIN=/tmp/gh agent-harness cleanup 5
 env AGENT_HARNESS_TEST=1 agent-harness cleanup 5
 agent-harness cleanup 5 --force
@@ -1857,8 +1986,9 @@ wg deny "$WM" "echo /p | xargs rm -rf"
 wg deny "$WM" "python3 -c 'import shutil; shutil.rmtree(\"/Users/x/orca/workspaces/r/w\")'"
 wg deny "$WM" "orca --json worktree rm --worktree path:/x"
 wg deny "$WM" "export ORCA_BIN=/t; agent-harness worktree-rm /x --confirmed"
-check "git-guard worktree (off) ask: bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed" test "$(wg_decision off "$WM" "bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed")" = ask
-check "git-guard worktree (on) allow: bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed" test "$(wg_decision on "$WM" "bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed")" = allow
+check "git-guard worktree (off) deny shell flags: bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed" test "$(wg_decision off "$WM" "bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed")" = deny
+check "git-guard worktree (on) deny shell flags: bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed" test "$(wg_decision on "$WM" "bash -x scripts/agent-harness/worktree-rm.sh /p --confirmed")" = deny
+check "git-guard worktree (on) allow: bash scripts/agent-harness/worktree-rm.sh /p --confirmed" test "$(wg_decision on "$WM" "bash scripts/agent-harness/worktree-rm.sh /p --confirmed")" = allow
 check "git-guard worktree (off) ask: agent-harness worktree-rm /x --confirmed" test "$(wg_decision off "$WM" "agent-harness worktree-rm /x --confirmed")" = ask
 check "git-guard worktree (on) allow: agent-harness worktree-rm /x --confirmed" test "$(wg_decision on "$WM" "agent-harness worktree-rm /x --confirmed")" = allow
 check "git-guard worktree (on) allow: ~/.local/bin/agent-harness worktree-rm /x --confirmed" test "$(wg_decision on "$WM" "~/.local/bin/agent-harness worktree-rm /x --confirmed")" = allow
@@ -2661,7 +2791,7 @@ out="$( cd "$LM" && env -u CLAUDE_PROJECT_DIR PATH="$TMP/lsleep:$TMP/lbin:$PATH"
 check "dispatcher: teardown-merged-worktree forwards" grep -q 'no registered worktree for PR 99' <<<"$out"
 out="$( cd "$LM" && bash "$H/agent-harness.sh" report 2>&1)"; rc=$?
 check "dispatcher: report forwards" grep -q 'usage: report.sh' <<<"$out"
-check "dispatcher: usage lists the new commands" grep -q 'ship-init|ship-merge|cleanup|teardown-merged-worktree|worktree-rm|report' <<<"$(bash "$H/agent-harness.sh" 2>&1)"
+check "dispatcher: usage lists the new commands" grep -q 'ship-init|ship-merge|cleanup|prune-backups|teardown-merged-worktree|worktree-rm|report' <<<"$(bash "$H/agent-harness.sh" 2>&1)"
 
 # guard: teardown, ship-init, env and function injection
 GUARD_CWD="$TMP/work"
@@ -2766,6 +2896,24 @@ for c in "cd /tmp/x && agent-harness ship-init feat ui x" "agent-harness ship-in
   check "lifecycle guard says ship-init runs from the target repo: $c" grep -q 'working directory is the target repo' <<<"$(gate_reason "$c")"
 done
 check "lifecycle guard keeps the argument message for a bad shape" grep -q 'take exactly their documented arguments' <<<"$(gate_reason "agent-harness ship-init feat Ui x")"
+check "prune-backups guard names the documented shape" grep -qF 'prune-backups takes exactly `agent-harness prune-backups [--confirmed]`' <<<"$(gate_reason "agent-harness prune-backups --force")"
+for f in "-eo pipefail" "-xO extglob" "+o errexit" "+O extglob" "-o errexit" "--rcfile /dev/null"; do
+  for t in "./x/prune-backups.sh --confirmed" "./x/cleanup.sh 5" "./x/worktree-rm.sh /x --confirmed" "./x/agent-harness.sh cleanup 5" "~/.claude/scripts/agent-harness/prune-backups.sh --confirmed"; do
+    check "guard denies shell flags before a harness script: bash $f $t" denied "bash $f $t"
+  done
+done
+for sh in bash sh zsh "env bash"; do
+  for f in "\$'-e'" "\$\"-e\""; do
+    for t in "./x/prune-backups.sh --confirmed" "./x/cleanup.sh 5" "./x/worktree-rm.sh /x --confirmed" "./x/agent-harness.sh cleanup 5" "~/.claude/scripts/agent-harness/prune-backups.sh --all"; do
+      check "guard denies a quoted shell flag before a harness script: $sh $f $t" denied "$sh $f $t"
+    done
+  done
+done
+check "guard still allows plain agent-harness prune-backups" allowed "agent-harness prune-backups --confirmed"
+check "guard names shell flags" grep -q 'run the harness script without shell options' <<<"$(gate_reason "bash -eo pipefail ./x/prune-backups.sh --confirmed")"
+check "guard still allows a plain installed prune-backups" allowed "bash ~/.claude/scripts/agent-harness/prune-backups.sh --confirmed"
+check "guard still allows shell flags on a non-harness script" allowed "bash -e ./build.sh"
+check "branch delete denial names prune-backups" grep -q 'agent-harness prune-backups' <<<"$(gate_reason "git branch -D backup/x")"
 for c in "agent-harness cleanup 15 --confirmed" "agent-harness cleanup --help" "agent-harness cleanup 5 6" "agent-harness cleanup"; do
   check "cleanup guard denies a bad shape: $c" denied "$c"
   check "cleanup guard names the documented shape: $c" grep -qF 'cleanup takes exactly `agent-harness cleanup <pr> [--keep-branch]`' <<<"$(gate_reason "$c")"
