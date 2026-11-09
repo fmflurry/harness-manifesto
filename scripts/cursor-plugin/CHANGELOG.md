@@ -2,6 +2,10 @@
 
 Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cursor-plugin/config.json` and is copied into `.cursor-plugin/plugin.json` by `node scripts/build-cursor-plugin.mjs`.
 
+## [0.4.42] - 2026-11-09
+
+- `ship-init`, `ship-merge`, `cleanup`, `teardown-merged-worktree`, `worktree-rm` and `goal` accept a trailing `--repo <absolute path>`, so a session in one repo can start and manage a goal worktree of another repo with or without Orca. The guard allows exactly that trailing shape; cd and env prefixes stay denied.
+
 ## [0.4.41] - 2026-11-09
 
 - New `agent-harness prune-backups [--confirmed]` retires leftover `backup/*` branches that no goal file or registry entry lists, such as those left by goals torn down before 0.4.40. A backup already in `refs/remotes/origin/<base>` is deleted; any other is archived to `refs/harness/backups/<name>` first (create-only, a taken name keeps the branch). A symbolic ref and a branch checked out in a worktree are kept. Without `--confirmed` it only lists what it would do. The git guard allows exactly `agent-harness prune-backups [--confirmed]`; cleanup and prune-backups share one archive helper.

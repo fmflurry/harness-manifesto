@@ -7,7 +7,9 @@ case "${OSTYPE:-}" in msys* | cygwin* | win32*) jq() { command jq "$@" | tr -d '
 jqn() { MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' jq "$@"; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-FX="$TMP/fx"; mkdir -p "$FX" "$TMP/state" "$TMP/proj/.claude"
+FX="$TMP/fx"; mkdir -p "$FX" "$TMP/state" "$TMP/proj/.claude" "$TMP/home"
+# Per-user harness state (such as --repo goal markers) must never land in the caller's real home.
+export HOME="$TMP/home"
 pass=0; failn=0
 ok() { pass=$((pass + 1)); }
 bad() { failn=$((failn + 1)); echo "FAIL: $*"; }
@@ -2487,6 +2489,38 @@ LH ship-init fix ui garbage-managed >/dev/null 2>&1; rc=$?
 check "ship-init: an unusable orca repo list counts as not managed" test $rc -eq 0
 check "ship-init: not-managed repo uses git" test "$(lreg fix-ui-garbage-managed .via)" = git
 
+# --repo: a session whose working directory is another repo starts and manages a goal of the target repo
+lw_fixture git
+LA="$LROOT/caller"; git init -q "$LA"
+LCWD="$LA" LH agent-harness ship-init feat ui repo-x --goal "remote goal" --repo "$LM" >"$FX/out" 2>"$FX/err"; rc=$?
+LT="$LM-wt/feat-ui-repo-x"
+check "--repo ship-init from another repo: exits 0" test $rc -eq 0
+check "--repo ship-init: prints the target worktree" test "$(cat "$FX/out")" = "$LT"
+check "--repo ship-init: worktree belongs to the target repo" test "$(git -C "$LT" rev-parse --path-format=absolute --git-common-dir)" = "$(git -C "$LM" rev-parse --path-format=absolute --git-common-dir)"
+check "--repo ship-init: registry entry in the target repo" test "$(lreg feat-ui-repo-x .goal)" = "remote goal"
+check "--repo ship-init: goal state under the target main checkout" test -f "$(scoped_goal_file "$LT")" -a "$(dirname "$(scoped_goal_file "$LT")")" = "$LM/.claude/state/goals"
+check "--repo ship-init: the caller repo gets no goal state" test ! -e "$LA/.claude/state/goals" -a ! -e "$LA/.git/agent-harness"
+check "--repo ship-init: the per-user marker names the target repo" grep -qxF "$LM" "$HOME"/.agent-harness/goals-foreign/*
+LCWD="$LA" LH agent-harness goal pr 9 --repo "$LT" >/dev/null 2>&1; rc=$?
+check "--repo goal pr: exits 0" test $rc -eq 0
+check "--repo goal pr: writes the target worktree's goal" test "$(jq -r .pr "$(scoped_goal_file "$LT")")" = 9
+out="$(cd "$LA" && echo '{}' | env -u AGENT_STATE_DIR CLAUDE_PROJECT_DIR="$LA" PATH="$TMP/lsleep:$TMP/lbin:$PATH" bash "$HOOKS/ship-stop-gate.sh" 2>/dev/null)"
+check "--repo: the caller session's stop gate does not block on the target goal" bash -c '! grep -q "\"decision\"" <<<"$1"' _ "$out"
+mkdir -p "$LROOT/plain" "$LM/sub"
+for bad in "main" "$LROOT/plain" "$LM/sub" "$LROOT/missing"; do
+  LCWD="$LROOT" LH agent-harness ship-init feat ui repo-bad --repo "$bad" >"$FX/out" 2>"$FX/err"; rc=$?
+  check "--repo $bad is refused: exit 2" test $rc -eq 2
+  check "--repo $bad is refused: no worktree" test ! -e "$LM-wt/feat-ui-repo-bad"
+  check "--repo $bad is refused: no registry entry" test ! -e "$(lreg_file feat-ui-repo-bad)"
+  [ "$bad" != "$LM/sub" ] || check "--repo subdirectory refusal names the top level" grep -q "is not the top level of a git checkout" "$FX/err"
+done
+LCWD="$LA" LH agent-harness ship-init feat ui repo-bad --repo "$LM" --goal g >/dev/null 2>"$FX/err"; rc=$?
+check "--repo before other arguments is refused" test $rc -eq 2
+LCWD="$LA" LH agent-harness autonomy status --repo "$LM" >/dev/null 2>"$FX/err"; rc=$?
+check "--repo on a command that does not take it is refused" test $rc -eq 2
+check "--repo on a command that does not take it names the command" grep -q 'autonomy does not take --repo' "$FX/err"
+check "--repo before other arguments: no worktree" test ! -e "$LM-wt/feat-ui-repo-bad"
+
 lw_adopt_fixture() {
   lw_fixture "$1"
   ( cd "$LM" && git checkout -q -b feat/adopt-me && echo d >d && git add d && git commit -qm D \
@@ -2811,6 +2845,11 @@ LG_ALLOW=(
   "agent-harness goal reset --field gate"
   "agent-harness goal reset --field wait"
   "agent-harness goal reset --field all"
+  "agent-harness ship-init feat ui x --goal build the hud --repo /abs/repo"
+  "agent-harness ship-init feat ui x --repo /abs/repo"
+  "agent-harness ship-init --adopt 7 --repo /abs/repo"
+  "agent-harness teardown-merged-worktree 5 --repo /abs/repo"
+  "agent-harness goal pr 5 --repo /abs/repo-wt/feat-x"
 )
 LG_DENY=(
   "bash ~/.claude/scripts/agent-harness/teardown-merged-worktree.sh 5"
@@ -2876,6 +2915,16 @@ LG_DENY=(
   "agent-harness ship-init feat ui x; echo hi"
   "agent-harness ship-init feat ui x | tee /tmp/x"
   "true && agent-harness ship-init feat ui x"
+  "agent-harness ship-init feat ui x --repo rel/repo"
+  "agent-harness ship-init feat ui x --repo"
+  "agent-harness ship-init feat ui x --repo /abs/repo --goal g"
+  "agent-harness ship-init feat ui x --repo=/abs/repo"
+  "agent-harness ship-init feat ui x --repo /a --repo /b"
+  "agent-harness ship-init feat ui x --repo \$HOME/repo"
+  "cd /abs/repo && agent-harness ship-init feat ui x --repo /abs/repo"
+  "CLAUDE_PROJECT_DIR=/abs/repo agent-harness ship-init feat ui x --repo /abs/repo"
+  "agent-harness teardown-merged-worktree 5 --repo rel"
+  "agent-harness teardown-merged-worktree --repo /abs/repo 5"
 )
 for mode in off on; do
   reset; [ "$mode" = on ] && flag_on
@@ -2893,7 +2942,20 @@ reset; flag_on
 for c in "cd /tmp/x && agent-harness ship-init feat ui x" "agent-harness ship-init feat ui x && echo hi" "true && agent-harness teardown-merged-worktree 5"; do
   check "lifecycle guard denies a chain: $c" denied "$c"
   check "lifecycle guard names the cd prefix or chain: $c" grep -q 'not after a cd prefix or in a && ; | chain' <<<"$(gate_reason "$c")"
-  check "lifecycle guard says ship-init runs from the target repo: $c" grep -q 'working directory is the target repo' <<<"$(gate_reason "$c")"
+  check "lifecycle guard points at --repo for another repo: $c" grep -q 'end the command with --repo <absolute path' <<<"$(gate_reason "$c")"
+done
+for c in "agent-harness worktree-rm /x --confirmed --repo /abs/repo" "agent-harness ship-merge 5 --repo /abs/repo" \
+  "agent-harness ship-merge 5 --method rebase --repo /abs/repo" "agent-harness cleanup 5 --repo /abs/repo" "agent-harness cleanup 5 --keep-branch --repo /abs/repo"; do
+  check "repo guard (flag on) allows: $c" allowed "$c"
+done
+for c in "agent-harness worktree-rm /x --confirmed --repo rel" "agent-harness worktree-rm /x --repo /abs/repo --confirmed" \
+  "agent-harness ship-merge 5 --repo rel" "agent-harness ship-merge 5 --repo /abs/repo --method rebase" "agent-harness ship-merge 5 --repo=/abs/repo" \
+  "agent-harness cleanup 5 --repo rel" "agent-harness cleanup 5 --repo /abs/repo --keep-branch" "agent-harness cleanup --repo /abs/repo" \
+  "GH_BIN=/x agent-harness cleanup 5 --repo /abs/repo" "agent-harness cleanup 5 --repo /abs/repo*" \
+  "agent-harness worktree-rm /x --confirmed --repo /abs/[r]epo" "bash -x ~/.claude/scripts/agent-harness/worktree-rm.sh /x --confirmed --repo /abs/repo" \
+  "agent-harness prune-backups --repo /abs/repo" "rm -rf ~/.agent-harness/goals-foreign" "rm -f $HOME/.agent-harness/goals-foreign/x" \
+  "echo /nowhere > ~/.agent-harness/goals-foreign/x"; do
+  check "repo guard (flag on) denies: $c" denied "$c"
 done
 check "lifecycle guard keeps the argument message for a bad shape" grep -q 'take exactly their documented arguments' <<<"$(gate_reason "agent-harness ship-init feat Ui x")"
 check "prune-backups guard names the documented shape" grep -qF 'prune-backups takes exactly `agent-harness prune-backups [--confirmed]`' <<<"$(gate_reason "agent-harness prune-backups --force")"
@@ -3016,6 +3078,37 @@ check "git guard: writing the goal registry from the shell denies" lw_denied "$(
 LCWD="$LT" LH goal review code pass >/dev/null 2>&1
 LCWD="$LT" LH goal review security pass >/dev/null 2>&1
 check "push guard: cd finds the reviews recorded in the worktree" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "cd $LT && git push -u origin feat/ui-cd-guard")"
+# A goal started with --repo from another repo is gated by its own goal and its own repo's autonomy flag.
+LA="$LROOT/caller-repo"; git init -q "$LA"; git -C "$LA" -c user.email=t@t -c user.name=t commit -q --allow-empty -m a
+LCWD="$LA" LH agent-harness ship-init feat ui cross-x --goal "cross" --repo "$LM" >"$FX/out" 2>/dev/null; LX="$(cat "$FX/out")"
+( cd "$LX" && echo x >x && git add x && git commit -qm X ) >/dev/null 2>&1
+mkdir -p "$LA/.claude/state"; touch "$LA/.claude/state/autonomy.on"
+check "push guard: the caller repo has no goal of its own" test -z "$(find "$LA/.claude/state" -name '*.json' 2>/dev/null)"
+check "push guard: from another repo, a plain git -C push into an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LX push origin feat/ui-cross-x")"
+check "push guard: from another repo, cd into an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LX && git push -u origin feat/ui-cross-x")"
+check "push guard: from another repo, git -C an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LX push -u origin feat/ui-cross-x")"
+mkdir -p "$LX/sub"; ln -s "$LX/sub" "$LA/lnk"
+check "push guard: a symlink into a --repo goal worktree's subdirectory is still gated" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C lnk push origin feat/ui-cross-x")"
+check "push guard: stacked -C into a --repo goal worktree is still gated" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LROOT -C main-wt/feat-ui-cross-x push origin feat/ui-cross-x")"
+check "push guard: cd then a relative -C into a --repo goal worktree is still gated" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LROOT && git -C main-wt/feat-ui-cross-x push origin feat/ui-cross-x")"
+ln -s "$LX" "$LROOT/C:x"
+check "push guard: a drive-letter-looking relative -C target is still gated off Windows" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LROOT && git -C C:x push origin feat/ui-cross-x")"
+rm -f "$LROOT/C:x"
+mkdir -p "$LA/git"
+check "push guard: a -C value named git does not reset the stacked -C check" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C git -C ../../main-wt/feat-ui-cross-x push origin feat/ui-cross-x")"
+rmdir "$LA/git"
+rm -f "$LA/lnk"; rmdir "$LX/sub"
+LXG="$(cat "$LX/.git")"; printf 'gitdir: ../../main/.git/worktrees/%s\n' "${LXG##*/}" >"$LX/.git"
+check "push guard: the relative gitdir fixture is a valid worktree" test "$(git -C "$LX" rev-parse --abbrev-ref HEAD 2>/dev/null)" = feat/ui-cross-x
+check "push guard: a linked worktree with a relative gitdir is still gated" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LX push origin feat/ui-cross-x")"
+printf '%s\n' "$LXG" >"$LX/.git"
+check "gh pr create guard: from another repo, cd into an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LX && gh pr create --fill")"
+LCWD="$LM" LH agent-harness ship-init feat ui cross-y --goal "cross from inside" --repo "$LM" >"$FX/out" 2>/dev/null; LY="$(cat "$FX/out")"
+( cd "$LY" && echo y >y && git add y && git commit -qm Y ) >/dev/null 2>&1
+check "push guard: a --repo goal started while the shell sat in the target repo still gates a plain push" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LY push origin feat/ui-cross-y")"
+LCWD="$LA" LH agent-harness goal review code pass --repo "$LX" >/dev/null 2>&1
+LCWD="$LA" LH agent-harness goal review security pass --repo "$LX" >/dev/null 2>&1
+check "push guard: from another repo, the --repo goal's own reviews allow the push" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LX && git push -u origin feat/ui-cross-x")"
 check "push guard: git -C finds the reviews recorded in the worktree" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "git -C $LT push -u origin feat/ui-cd-guard")"
 check "gh pr create guard: cd finds the worktree's reviews" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "cd $LT && gh pr create --fill")"
 check "gh pr create guard: --head maps to the registered worktree's reviews" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LM" "gh pr create --head feat/ui-cd-guard --fill")"

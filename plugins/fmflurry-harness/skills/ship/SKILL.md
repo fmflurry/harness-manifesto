@@ -31,6 +31,11 @@ The main checkout is never used for goal work.
    reason, report, created_at}` and writes a fresh goal file for that worktree and branch. It prints the worktree path on stdout and
    `slug=<slug>` on stderr. Resume an existing PR with `agent-harness ship-init --adopt <pr>`; if that PR is still a
    draft, run `gh pr ready <pr>` before `ship-merge`, which refuses drafts.
+   **Another repo.** A session rooted in a different repo ends each command with `--repo <absolute path>`, with or
+   without Orca. `ship-init`, `ship-merge`, `cleanup`, `teardown-merged-worktree` and `worktree-rm` take the target
+   repo's main checkout. `goal` takes the goal worktree: `agent-harness goal pr <n> --repo <wt>`. The path must be a
+   checkout's top level, and `--repo` must come last. A `cd` or env prefix stays denied. The calling session's Stop
+   hook keeps reading its own checkout, so it does not hold that session for the other repo's goal.
 2. **Cycle.** Implement, verify, local review, local fix loop, push and open the PR, CI, merge.
 3. **Report before merge.** Render the outcome show-me summary into the worktree at `docs/agent-reports/`, commit it in
    the PR, and embed it in the PR body. Do this on the success path and on the blocked path. The visual report required

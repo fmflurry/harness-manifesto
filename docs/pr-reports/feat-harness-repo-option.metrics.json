@@ -1,0 +1,48 @@
+{
+  "feature": {
+    "repo": "fmflurry/settings-opencode",
+    "branch": "feat/harness-repo-option",
+    "pr": null
+  },
+  "prs": [],
+  "wall_ms": 343000,
+  "active_ms": 2000,
+  "idle_gap_min": 5,
+  "sessions": {
+    "cursor": 1,
+    "claude": 0,
+    "opencode": 0
+  },
+  "tools": [
+    {
+      "name": "Bash",
+      "count": 2
+    }
+  ],
+  "skills": [],
+  "agents": [
+    {
+      "name": "main",
+      "calls": 0
+    },
+    {
+      "name": "generalPurpose",
+      "calls": 2
+    }
+  ],
+  "tool_failures": 0,
+  "failure_tools": [],
+  "duration_ms": null,
+  "guard_blocks": 2,
+  "guards": {
+    "pr-visual-report": 2
+  },
+  "review_rounds": 0,
+  "fix_rounds": 0,
+  "tokens": null,
+  "tokens_known": 0,
+  "events": 6,
+  "first_ts": "2026-11-06T14:03:31Z",
+  "last_ts": "2026-11-06T14:09:14Z",
+  "partial": false
+}

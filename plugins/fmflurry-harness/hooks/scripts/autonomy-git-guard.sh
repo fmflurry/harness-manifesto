@@ -63,7 +63,7 @@ GG_HUGE='
 BEGIN {
   RS = "\034"
   word = "git|gh|rm|mv|cp|ln|tee|sed|dd|perl|python|node|ruby|rsync|find|trash|truncate|touch|install|sponge|direnv|orca|ship-init|ship-merge|worktree|teardown|agent-harness|cleanup|prune-backups|xargs|pushd|popd"
-  prot = "\\.claude/|\\.github/|\\.opencode/|\\.git/agent-harness/|goal\\.json|autonomy\\.on|opencode\\.jsonc|AGENTS\\.md|CLAUDE\\.md|agents\\.md|claude\\.md|\\.envrc|tools/agent-harness/|tools/ci/|rmtree|rm_rf|rmSync|remove_tree|rmdir"
+  prot = "\\.claude/|\\.github/|\\.opencode/|\\.git/agent-harness/|\\.agent-harness/goals-foreign|goal\\.json|autonomy\\.on|opencode\\.jsonc|AGENTS\\.md|CLAUDE\\.md|agents\\.md|claude\\.md|\\.envrc|tools/agent-harness/|tools/ci/|rmtree|rm_rf|rmSync|remove_tree|rmdir"
 }
 function outside_bad(t) {
   return t ~ word || t ~ prot || index(t, "<") || index(t, ">") || index(t, "$") || index(t, "{") || index(t, "`") || index(t, "\\")
@@ -151,12 +151,21 @@ SESSION_REPO="$GS_REPO" SESSION_GOAL_FILE="$GOAL_FILE"
 # goal_for_dir <dir>: bind GOAL_FILE to the goal of the checkout a command runs in (after cd or git -C), so that
 # goal's own reviews gate it. Fails closed: the switch happens only when that goal is itself gated; a checkout with
 # no goal, or an escalated, blocked or done one, keeps the session's goal.
+# A checkout of another repo (a goal started with --repo) is gated by that repo's goal, read from its main checkout.
 goal_for_dir() {
+  local main id
   GOAL_FILE="$SESSION_GOAL_FILE"
   [ -n "$1" ] && [ "$1" != "?" ] && [ -d "$1" ] && [ -n "$SESSION_REPO" ] || return 0
   goal_scope_resolve "$1"
-  [ "${GS_KIND:-none}" != none ] && [ "$GS_REPO" = "$SESSION_REPO" ] || return 0
-  goal_bind_file "$STATE_DIR"
+  [ "${GS_KIND:-none}" != none ] || return 0
+  if [ "$GS_REPO" = "$SESSION_REPO" ]; then
+    goal_bind_file "$STATE_DIR"
+  else
+    main="$(git -C "$1" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
+    id="$(goal_state_id 2>/dev/null || true)"
+    { [ -n "$main" ] && [[ "$id" =~ ^[0-9a-f]{40}$ ]]; } || return 0
+    GOAL_FILE="$main/.claude/state/goals/$id.json"
+  fi
   gate_on || GOAL_FILE="$SESSION_GOAL_FILE"
 }
 
@@ -173,7 +182,7 @@ alts="$(cfg '(.protectedPaths // []) | map(ltrimstr("^")) | join("|")')"
 alts="${alts:-$DEFAULT_ALTS}"
 ALTS_DEFAULT=0
 [ "$alts" = "$DEFAULT_ALTS" ] && ALTS_DEFAULT=1
-AUTONOMY_FLAG='\.claude/state/(autonomy\.on|goal\.json)|\.git/agent-harness/'
+AUTONOMY_FLAG='\.claude/state/(autonomy\.on|goal\.json)|\.git/agent-harness/|\.agent-harness/goals-foreign'
 TOKEN_RE="(^|/)(${alts})|${AUTONOMY_FLAG}"
 if [ "$WIN" = 1 ]; then lc "$TOKEN_RE"; TOKEN_RE="$LCV"; fi
 LOOSE_RE="$(sed -E 's/\$(\||$)/\1/g' <<<"$alts")|${AUTONOMY_FLAG}"
@@ -190,7 +199,7 @@ deny() { emit deny "Blocked by git-guard: merge via agent-harness ship-merge, pu
 deny_worktree() { emit deny "Blocked by git-guard: remove worktrees only via \`agent-harness worktree-rm <path> --confirmed\`."; }
 deny_harness_env() { emit deny "Blocked by git-guard: run agent-harness as one plain command; no env overrides, exported functions or shell startup files."; }
 deny_harness_cmd() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree take exactly their documented arguments as one plain command."; }
-deny_harness_chain() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree must run alone, not after a cd prefix or in a && ; | chain. They act on the session's working directory: run ship-init from a session whose working directory is the target repo."; }
+deny_harness_chain() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree must run alone, not after a cd prefix or in a && ; | chain. They act on the session's working directory; for another repo, end the command with --repo <absolute path of its checkout>."; }
 deny_cleanup_shape() { emit deny "Blocked by git-guard: cleanup takes exactly \`agent-harness cleanup <pr> [--keep-branch]\`: a PR number, then optionally --keep-branch, and no other flag (no --confirmed, no --help)."; }
 deny_shell_flags() { emit deny "Blocked by git-guard: run the harness script without shell options (no -x, -e, -o, +O or similar before it)."; }
 deny_prune_shape() { emit deny "Blocked by git-guard: prune-backups takes exactly \`agent-harness prune-backups [--confirmed]\`: no other argument."; }
@@ -363,11 +372,11 @@ gate_git() {
   fi
 }
 
-# Gated while autonomy is on and the goal is active; an unreadable goal.json fails closed.
-# Sets GATE_BASE from goal.json.
+# Gated while autonomy is on (the session's flag, or the flag of the repo that holds the goal) and the goal is active;
+# an unreadable goal.json fails closed. Sets GATE_BASE from goal.json.
 gate_on() {
   local goal="$GOAL_FILE" st=""
-  [ "$AUTO" = 1 ] && [ -f "$goal" ] || return 1
+  { [ "$AUTO" = 1 ] || [ -f "${goal%/goals/*}/autonomy.on" ]; } && [ -f "$goal" ] || return 1
   { read -r st; read -r GATE_BASE; } < <(jqr '(.status // ""), (.base // "")' "$goal" 2>/dev/null)
   [ "$st" = active ] || [ -z "$st" ]
 }
@@ -944,6 +953,16 @@ shell_flag_run() {
   done
   return 1
 }
+# drop_repo_opt: removes a trailing `--repo <absolute path>` from RA. Returns 1 for any other --repo, which callers deny.
+drop_repo_opt() {
+  local n="${#RA[@]}" a
+  if [ "$n" -ge 2 ] && [ "${RA[n - 2]}" = --repo ]; then
+    [[ "${RA[n - 1]}" == /* && "${RA[n - 1]}" != *['$`*?[']* ]] || return 1
+    RA=("${RA[@]:0:n-2}")
+  fi
+  for a in "${RA[@]}"; do case "$a" in --repo | --repo=*) return 1 ;; esac; done
+  return 0
+}
 check_worktree_rm() {
   local has_assign="$1" c0="$2"; shift 2
   local rest=() legit=0 script
@@ -966,6 +985,7 @@ check_worktree_rm() {
     *) return 1 ;;
   esac
   [ "$has_assign" = 0 ] || deny_worktree
+  RA=("${rest[@]}"); drop_repo_opt || deny_worktree; rest=("${RA[@]}")
   local a paths=0 confirmed=0
   for a in "${rest[@]}"; do
     case "$a" in
@@ -989,6 +1009,7 @@ check_ship_merge() {
     *) return 1 ;;
   esac
   [ "$has_assign" = 0 ] || deny
+  RA=("${rest[@]}"); drop_repo_opt || deny; rest=("${RA[@]}")
   [[ "${rest[0]:-}" =~ ^[0-9]+$ ]] || deny
   local i=1 seen_confirmed=0 seen_method=0 seen_keep=0
   while [ "$i" -lt "${#rest[@]}" ]; do
@@ -1021,6 +1042,7 @@ check_cleanup() {
     *) return 1 ;;
   esac
   [ "$has_assign" = 0 ] || deny_harness_env
+  RA=("${rest[@]}"); drop_repo_opt || deny_cleanup_shape; rest=("${RA[@]}")
   [[ "${rest[0]:-}" =~ ^[0-9]+$ ]] || deny_cleanup_shape
   [ "${#rest[@]}" -le 2 ] || deny_cleanup_shape
   [ "${#rest[@]}" -lt 2 ] || [ "${rest[1]}" = --keep-branch ] || deny_cleanup_shape
@@ -1087,6 +1109,7 @@ check_harness_cmd() {
     *) return 1 ;;
   esac
   [ "$has_assign" = 0 ] || deny_harness_cmd
+  RA=("$@"); drop_repo_opt || deny_harness_cmd; set -- "${RA[@]}"
   case "$shape" in
     pr) { [ "$#" -eq 1 ] && [[ "$1" =~ ^[0-9]+$ ]]; } || deny_harness_cmd ;;
     init)
@@ -1521,7 +1544,8 @@ function maybe_prot(t) {
   if (win) t = tolower(t)
   return index(t, ".github/") || index(t, ".claude/") || index(t, ".opencode/") || index(t, "tools/agent-harness/") \
     || index(t, "tools/ci/") || index(tolower(t), "goal.json") || index(tolower(t), "autonomy.on") || index(t, "opencode.jsonc") || index(t, "agents.md") || index(t, "claude.md") \
-    || index(t, "AGENTS.md") || index(t, "CLAUDE.md") || index(t, ".envrc") || index(t, ".git/agent-harness/")
+    || index(t, "AGENTS.md") || index(t, "CLAUDE.md") || index(t, ".envrc") || index(t, ".git/agent-harness/") \
+    || index(t, ".agent-harness/goals-foreign")
 }
 function segkeep(s,   t, k, b, i, a, n, ps) {
   sub(/^[ \t\r\f\v({]+/, "", s)
@@ -2052,6 +2076,18 @@ case "$BASE_A$BASE_B" in *\\* | *\"* | *\'* | *$'\n'*) pushfast=0 ;; esac
 gate_on && pushfast=0
 # A push run in another goal worktree (cd, git -C) is gated by that worktree's goal, so no fast path while any goal exists.
 [ "$AUTO" = 1 ] && [ -n "$(find "$STATE_DIR/goals" -maxdepth 1 -name '*.json' 2>/dev/null | head -n 1)" ] && pushfast=0
+# The same goes for a goal started in another repo: ship-init --repo leaves a per-user marker naming that repo's main
+# checkout, and while that checkout keeps goal files every push takes the slow path, which resolves directories.
+if [ "$AUTO" = 1 ] && [ "$pushfast" = 1 ] && [ -d "$HOME/.agent-harness/goals-foreign" ]; then
+  set +f
+  for pf_m in "$HOME"/.agent-harness/goals-foreign/*; do
+    [ -f "$pf_m" ] || continue
+    IFS= read -r pf_main <"$pf_m" || pf_main=""
+    [[ "$pf_main" == /* || "$pf_main" == [A-Za-z]:[/\\]* ]] || { pushfast=0; break; }
+    for pf_g in "$pf_main"/.claude/state/goals/*.json; do [ -e "$pf_g" ] && { pushfast=0; break 2; }; done
+  done
+  set -f
+fi
 merged=0
 if [[ "$cmd" != *\\* ]]; then
   # One awk pass yields the quote-aware scan and the legacy segments. Splits stay outside quotes,
