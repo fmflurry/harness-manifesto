@@ -2,7 +2,7 @@
 # prune-branches.sh [--confirmed]: delete local branches (other than backup/*, which prune-backups handles) whose tip is
 # already in origin/<base>, that no worktree has checked out, that are not the current branch, and that no goal file or
 # registry entry claims. A branch still at the tip of origin/<base> has no commits of its own yet and is kept. Remote
-# branches are never touched. Dry run unless --confirmed.
+# branches are never touched. Dry run unless --confirmed (it still refreshes origin/<base>).
 set -euo pipefail
 # shellcheck source=scripts/agent-harness/lib.sh
 . "${BASH_SOURCE[0]%/*}/lib.sh"
@@ -22,11 +22,13 @@ g rev-parse --git-dir >/dev/null 2>&1 || refuse "not a git repository"
 
 base="$(base_branch 2>/dev/null)" || base=""
 { [ -n "$base" ] && git check-ref-format --branch "$base" >/dev/null 2>&1; } || refuse "cannot resolve the base branch"
-# Fully qualified: a local tag or branch named origin/<base> must not stand in for the remote-tracking ref. Fetched
-# first: the local remote-tracking ref is writable, so only what origin has now proves a merge.
-base_ref="refs/remotes/origin/$base"
-g fetch -q --no-tags origin "+refs/heads/$base:$base_ref" 2>/dev/null || refuse "cannot fetch $base from origin"
-base_tip="$(g rev-parse -q --verify "$base_ref^{commit}" 2>/dev/null)" || refuse "no $base_ref after fetching origin"
+# The proof is the sha origin reports now, held in a variable: any local ref, refs/remotes/origin/<base> included, can
+# be rewritten while this runs. The fetch only brings the objects in (and refreshes origin/<base> as a side effect).
+export GIT_TERMINAL_PROMPT=0
+base_tip="$(g ls-remote --exit-code origin "refs/heads/$base" 2>/dev/null | cut -f1)" || base_tip=""
+[[ "$base_tip" =~ ^[0-9a-f]{40,64}$ ]] || refuse "cannot read $base from origin"
+g fetch -q --no-tags origin "+refs/heads/$base:refs/remotes/origin/$base" 2>/dev/null || refuse "cannot fetch $base from origin"
+g cat-file -e "$base_tip^{commit}" 2>/dev/null || refuse "origin/$base moved during the run; retry"
 current="$(g symbolic-ref -q HEAD 2>/dev/null || true)"
 
 # Every branch a goal file (any worktree's, all kept in the main checkout's state dir) or a registry entry names stays
@@ -61,7 +63,7 @@ while IFS= read -r ref; do
   if grep -qxF "$b" <<<"$claimed"; then say "$b @ $tip kept (claimed by a goal)"; kept=$((kept + 1)); continue; fi
   if grep -qxF "branch $ref" <<<"$worktrees"; then say "$b @ $tip kept (checked out in a worktree)"; kept=$((kept + 1)); continue; fi
   if [ "$full" = "$base_tip" ]; then say "$b @ $tip kept (no commits of its own yet)"; kept=$((kept + 1)); continue; fi
-  if ! g merge-base --is-ancestor "$full" "$base_ref" 2>/dev/null; then say "$b @ $tip kept (not in origin/$base)"; kept=$((kept + 1)); continue; fi
+  if ! g merge-base --is-ancestor "$full" "$base_tip" 2>/dev/null; then say "$b @ $tip kept (not in origin/$base)"; kept=$((kept + 1)); continue; fi
   if [ -z "$confirmed" ]; then say "$b @ $tip would be deleted (in origin/$base)"; continue; fi
   # Deleted against the tip judged above, so a branch that moved meanwhile is kept.
   if g update-ref --no-deref -d "$ref" "$full" 2>/dev/null; then say "$b @ $tip deleted"; acted=$((acted + 1)); else say "$b @ $tip kept (delete failed)"; kept=$((kept + 1)); fi

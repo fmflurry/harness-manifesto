@@ -850,6 +850,20 @@ pbr --confirmed; rc=$?
 check "prune-branches origin unreachable: refuses" test $rc -eq 1
 check "prune-branches origin unreachable: deletes nothing" local_exists pb-spoof
 git -C "$W" remote set-url origin "$OURL"; git -C "$W" branch -q -D pb-spoof
+PRC="$(git -C "$W" commit-tree -p "$OM" -m race "$OTREE")"; git -C "$W" branch -q pb-race "$PRC"
+PRS="$(git -C "$W" commit-tree -p "$PRC" -m on-top "$OTREE")"
+mkdir -p "$TMP/pbhooks"; cat >"$TMP/pbhooks/reference-transaction" <<HOOK
+#!/bin/sh
+[ "\$1" = committed ] && [ -z "\$PB_RACE" ] || exit 0
+grep -q ' refs/remotes/origin/master\$' || exit 0
+PB_RACE=1 git update-ref refs/remotes/origin/master $PRS
+HOOK
+chmod +x "$TMP/pbhooks/reference-transaction"; git -C "$W" config core.hooksPath "$TMP/pbhooks"
+pbr --confirmed; rc=$?
+git -C "$W" config --unset core.hooksPath
+check "prune-branches origin/master rewritten after the fetch: the race ran" test "$(git -C "$W" rev-parse refs/remotes/origin/master)" = "$PRS"
+check "prune-branches origin/master rewritten after the fetch: the unmerged branch is kept" local_exists pb-race
+git -C "$W" branch -q -D pb-race; git -C "$W" update-ref refs/remotes/origin/master "$PC2"
 git -C "$W" worktree remove --force "$TMP/pbwt" >/dev/null 2>&1
 git -C "$W" symbolic-ref --delete refs/heads/pb-sym; git -C "$W" tag -d origin/master >/dev/null
 git -C "$W" branch -q -D pb-claimed pb-wt pb-at-base pb-unmerged backup/pb-old

@@ -22,7 +22,7 @@ th{color:#6b6257;font-weight:normal}
 <div class="flow">
 <div class="step"><b>1 · skip</b><code>backup/*</code> (prune-backups owns these), the base branch, the current branch</div>
 <div class="step"><b>2 · keep</b>symbolic refs, branches named in a goal file or registry entry, branches checked out in any worktree</div>
-<div class="step"><b>3 · keep</b>after <code>git fetch origin <div class="step"><b>3 · keep</b>lt;base<div class="step"><b>3 · keep</b>gt;</code>: tip equal to <code>origin/&lt;base&gt;</code> (no commits of its own yet), or tip not an ancestor of <code>refs/remotes/origin/&lt;base&gt;</code></div>
+<div class="step"><b>3 · keep</b>judged against the sha <code>git ls-remote origin &lt;base&gt;</code> reports: tip equal to it (no commits of its own yet), or tip not an ancestor of it</div>
 <div class="step"><b>4 · delete</b>dry run prints <i>would be deleted</i>; <code>--confirmed</code> runs <code>update-ref --no-deref -d ref sha</code></div>
 </div>
 
@@ -38,6 +38,7 @@ th{color:#6b6257;font-weight:normal}
 <tr><td>backup/x, master, current</td><td>—</td><td class="k">untouched</td></tr>
 <tr><td>origin/* remote refs</td><td>—</td><td class="k">untouched</td></tr>
 <tr><td>forged local origin/master</td><td>agent rewrote the ref</td><td class="k">refreshed by fetch, branch kept</td></tr>
+<tr><td>origin/master rewritten mid-run</td><td>race after the fetch</td><td class="k">ignored, branch kept</td></tr>
 <tr><td>origin unreachable</td><td>fetch fails</td><td class="k">refuses, deletes nothing</td></tr>
 <tr><td>unreadable goal file</td><td>—</td><td class="k">refuses, deletes nothing</td></tr>
 </table></div>
@@ -56,10 +57,10 @@ th{color:#6b6257;font-weight:normal}
 </table></div>
 
 <h2>Checks</h2>
-<div class="card">run.sh: 2686 passed, 75 failed. All 75 are the known baseline failures (diffed by name). npm test: same baseline failures. Plugin check OK. shellcheck clean on the new script.</div>
+<div class="card">run.sh (bash 5 and bash 3.2): 2692 passed, 75 failed. All 75 are the known baseline failures (diffed by name). npm test: the 4 known baseline failures. Mutation checks: dropping the fetch fails the forged-ref and offline tests; judging against the local ref fails the race test. Plugin check OK. shellcheck clean on the new script.</div>
 
 <h2>Risks</h2>
-<div class="card">This is a new command that deletes branches. It only deletes local refs whose tip is reachable from the remote-tracking base, and never one that a goal or worktree claims. A deleted branch can be recreated from origin or the reflog. The proof is fetched from origin, so a rewritten local remote-tracking ref proves nothing. Origin's URL is still the trust root, as for ship-merge and cleanup: repointing it is a harness-wide follow-up. It is listed under Locked decisions for Florian.</div>
+<div class="card">This is a new command that deletes branches. It only deletes local refs whose tip is reachable from the base tip origin reports, and never one that a goal or worktree claims. A deleted branch can be recreated from origin or the reflog. The proof is the sha origin reports at run time, kept in a variable, so rewriting a local ref before or during the run proves nothing. Origin's URL is still the trust root, as for ship-merge and cleanup: repointing it is a harness-wide follow-up. It is listed under Locked decisions for Florian.</div>
 
 <section id="kpi-metrics" style="margin-top:28px">
 <h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
