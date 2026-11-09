@@ -2078,10 +2078,11 @@ gate_on && pushfast=0
 # The same goes for a push into another repo's checkout, whose goals live in that repo's state: no fast path when a
 # cd, pushd or -C target sits in a checkout whose main checkout keeps goal state, or when quoting or a backslash makes
 # the words ambiguous. Found without forking: walk up to .git; a linked worktree names its main checkout in it.
+pf_abs() { [[ "$1" == /* ]] || { [ "$WIN" = 1 ] && [[ "$1" == [A-Za-z]:[/\\]* ]]; }; }
 pf_goal_dir() {
   local d="$1" orig line main="" g
   # A relative target depends on earlier cd and -C words, which this scan does not simulate.
-  [[ "$d" == /* || "$d" == [A-Za-z]:* ]] || return 0
+  pf_abs "$d" || return 0
   [ -e "$d" ] || return 1
   # Symlinks resolved first (phys_dir sets d through dynamic scope, without forking).
   orig="$d"; phys_dir "$orig"; [ -n "$d" ] || d="$orig"
@@ -2090,7 +2091,7 @@ pf_goal_dir() {
     if [ -f "$d/.git" ]; then
       IFS= read -r line <"$d/.git" || line=""
       line="${line#gitdir: }"; main="${line%/.git/worktrees/*}"
-      [ "$main" != "$line" ] && [[ "$main" == /* || "$main" == [A-Za-z]:* ]] || return 0
+      [ "$main" != "$line" ] && pf_abs "$main" || return 0
       break
     fi
     d="${d%/*}"
