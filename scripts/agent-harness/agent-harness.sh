@@ -27,8 +27,8 @@ case "${1:-}" in
       if [ "$sub" = ship-init ]; then
         target="$(git -C "$real" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')" || target=""
         if [ -n "$target" ]; then
-          mkdir -p "$HOME/.claude/state/goals-foreign"
-          printf '%s\n' "$target" >"$HOME/.claude/state/goals-foreign/$(printf '%s' "$target" | git hash-object --stdin)"
+          mkdir -p "$HOME/.agent-harness/goals-foreign"
+          printf '%s\n' "$target" >"$HOME/.agent-harness/goals-foreign/$(printf '%s' "$target" | git hash-object --stdin)"
         fi
       fi
       builtin cd "$real"

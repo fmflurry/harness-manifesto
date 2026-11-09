@@ -63,7 +63,7 @@ GG_HUGE='
 BEGIN {
   RS = "\034"
   word = "git|gh|rm|mv|cp|ln|tee|sed|dd|perl|python|node|ruby|rsync|find|trash|truncate|touch|install|sponge|direnv|orca|ship-init|ship-merge|worktree|teardown|agent-harness|cleanup|prune-backups|xargs|pushd|popd"
-  prot = "\\.claude/|\\.github/|\\.opencode/|\\.git/agent-harness/|goal\\.json|autonomy\\.on|opencode\\.jsonc|AGENTS\\.md|CLAUDE\\.md|agents\\.md|claude\\.md|\\.envrc|tools/agent-harness/|tools/ci/|rmtree|rm_rf|rmSync|remove_tree|rmdir"
+  prot = "\\.claude/|\\.github/|\\.opencode/|\\.git/agent-harness/|\\.agent-harness/goals-foreign|goal\\.json|autonomy\\.on|opencode\\.jsonc|AGENTS\\.md|CLAUDE\\.md|agents\\.md|claude\\.md|\\.envrc|tools/agent-harness/|tools/ci/|rmtree|rm_rf|rmSync|remove_tree|rmdir"
 }
 function outside_bad(t) {
   return t ~ word || t ~ prot || index(t, "<") || index(t, ">") || index(t, "$") || index(t, "{") || index(t, "`") || index(t, "\\")
@@ -182,7 +182,7 @@ alts="$(cfg '(.protectedPaths // []) | map(ltrimstr("^")) | join("|")')"
 alts="${alts:-$DEFAULT_ALTS}"
 ALTS_DEFAULT=0
 [ "$alts" = "$DEFAULT_ALTS" ] && ALTS_DEFAULT=1
-AUTONOMY_FLAG='\.claude/state/(autonomy\.on|goal\.json)|\.git/agent-harness/'
+AUTONOMY_FLAG='\.claude/state/(autonomy\.on|goal\.json)|\.git/agent-harness/|\.agent-harness/goals-foreign'
 TOKEN_RE="(^|/)(${alts})|${AUTONOMY_FLAG}"
 if [ "$WIN" = 1 ]; then lc "$TOKEN_RE"; TOKEN_RE="$LCV"; fi
 LOOSE_RE="$(sed -E 's/\$(\||$)/\1/g' <<<"$alts")|${AUTONOMY_FLAG}"
@@ -1544,7 +1544,8 @@ function maybe_prot(t) {
   if (win) t = tolower(t)
   return index(t, ".github/") || index(t, ".claude/") || index(t, ".opencode/") || index(t, "tools/agent-harness/") \
     || index(t, "tools/ci/") || index(tolower(t), "goal.json") || index(tolower(t), "autonomy.on") || index(t, "opencode.jsonc") || index(t, "agents.md") || index(t, "claude.md") \
-    || index(t, "AGENTS.md") || index(t, "CLAUDE.md") || index(t, ".envrc") || index(t, ".git/agent-harness/")
+    || index(t, "AGENTS.md") || index(t, "CLAUDE.md") || index(t, ".envrc") || index(t, ".git/agent-harness/") \
+    || index(t, ".agent-harness/goals-foreign")
 }
 function segkeep(s,   t, k, b, i, a, n, ps) {
   sub(/^[ \t\r\f\v({]+/, "", s)
@@ -2077,9 +2078,9 @@ gate_on && pushfast=0
 [ "$AUTO" = 1 ] && [ -n "$(find "$STATE_DIR/goals" -maxdepth 1 -name '*.json' 2>/dev/null | head -n 1)" ] && pushfast=0
 # The same goes for a goal started in another repo: ship-init --repo leaves a per-user marker naming that repo's main
 # checkout, and while that checkout keeps goal files every push takes the slow path, which resolves directories.
-if [ "$AUTO" = 1 ] && [ "$pushfast" = 1 ] && [ -d "$HOME/.claude/state/goals-foreign" ]; then
+if [ "$AUTO" = 1 ] && [ "$pushfast" = 1 ] && [ -d "$HOME/.agent-harness/goals-foreign" ]; then
   set +f
-  for pf_m in "$HOME"/.claude/state/goals-foreign/*; do
+  for pf_m in "$HOME"/.agent-harness/goals-foreign/*; do
     [ -f "$pf_m" ] || continue
     IFS= read -r pf_main <"$pf_m" || pf_main=""
     [[ "$pf_main" == /* || "$pf_main" == [A-Za-z]:[/\\]* ]] || { pushfast=0; break; }
