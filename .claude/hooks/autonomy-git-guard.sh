@@ -195,7 +195,13 @@ deny_cleanup_shape() { emit deny "Blocked by git-guard: cleanup takes exactly \`
 deny_shell_flags() { emit deny "Blocked by git-guard: run the harness script without shell options (no -x, -e, -o, +O or similar before it)."; }
 deny_prune_shape() { emit deny "Blocked by git-guard: prune-backups takes exactly \`agent-harness prune-backups [--confirmed]\`: no other argument."; }
 deny_alias() { emit deny "Blocked by git-guard: git aliases can smuggle worktree removal; do not define or pass alias.* settings."; }
-deny_branch_delete() { emit deny "Blocked by git-guard: branch deletion only via agent-harness cleanup <pr> after merge, or agent-harness prune-backups for leftover backup/* branches."; }
+deny_branch_delete() {
+  local a
+  for a in "$@"; do
+    case "$a" in backup/*) emit deny "Blocked by git-guard: branch deletion only via agent-harness cleanup <pr> after merge, or agent-harness prune-backups for leftover backup/* branches." ;; esac
+  done
+  emit deny "Blocked by git-guard: branch deletion only via agent-harness cleanup <pr> after merge."
+}
 deny_config() { emit deny "Blocked by git-guard: git config injection (-c, --config-env, GIT_CONFIG_*) is not allowed."; }
 deny_unparsed() { emit deny "Blocked by git-guard: cannot parse this command safely (substitution, expansion, or ANSI-C quoting)."; }
 deny_review() { emit deny "Blocked by git-guard: $1"; }
@@ -596,9 +602,9 @@ check_git() {
     branch)
       for a in "${rest[@]}"; do
         case "$a" in
-          --delete) deny_branch_delete ;;
+          --delete) deny_branch_delete "${rest[@]}" ;;
           --*) ;;
-          -*[dD]*) deny_branch_delete ;;
+          -*[dD]*) deny_branch_delete "${rest[@]}" ;;
         esac
       done ;;
     update-ref) for a in "${rest[@]}"; do [[ "$a" =~ ^(-d|--delete|--stdin)$ ]] && deny_branch_delete; done ;;
