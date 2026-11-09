@@ -97,7 +97,7 @@ gh_rest_pr_view() {
   [ "${#fl[@]}" -gt 0 ] || return 1
   for f in "${fl[@]}"; do
     case "$f" in
-      state | baseRefName | isDraft | headRefOid | headRefName | isCrossRepository) ;;
+      state | baseRefName | isDraft | headRefOid | headRefName | isCrossRepository | body) ;;
       files) want_files=true ;;
       *) return 1 ;;
     esac
@@ -122,7 +122,7 @@ gh_rest_pr_view() {
     state: (if $p.state == "open" then "OPEN" elif $p.merged then "MERGED" else "CLOSED" end),
     isDraft: $p.draft, baseRefName: $p.base.ref, headRefName: $p.head.ref, headRefOid: $p.head.sha,
     isCrossRepository: (($p.head.repo.full_name // "") != $p.base.repo.full_name),
-    files: .[1]
+    body: ($p.body // ""), files: .[1]
   } | with_entries(select(.key as $k | $keys | any(. == $k)))'
 }
 gh_pr_view() { gh_or_rest gh_rest_pr_view "$1" "$2" -- pr view "$1" --json "$2"; }

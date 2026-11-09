@@ -12,21 +12,23 @@ slug="$(reg_slug "$1")" html="$2" out="${3:-}"
 [[ "$slug" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "report: bad slug '$1'" >&2; exit 2; }
 [ -f "$html" ] || { echo "report: $html not found" >&2; exit 1; }
 
-find_chrome() {
-  local c
+# Every candidate, one per line: a stale wrapper on PATH (a chromium shim left by an uninstalled app) must not hide a
+# working browser further down the list.
+find_chromes() {
+  local c found=1
   if [ "$HARNESS_INSTALLED" = 0 ] && [ "${AGENT_HARNESS_TEST:-}" = 1 ] && [ -n "${AGENT_HARNESS_CHROME:-}" ]; then
-    [ -x "$AGENT_HARNESS_CHROME" ] && { printf '%s' "$AGENT_HARNESS_CHROME"; return 0; }
+    [ -x "$AGENT_HARNESS_CHROME" ] && { printf '%s\n' "$AGENT_HARNESS_CHROME"; return 0; }
     return 1
   fi
   for c in google-chrome google-chrome-stable chromium chromium-browser chrome; do
-    type -P "$c" && return 0
+    type -P "$c" && found=0
   done
   for c in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" "/Applications/Chromium.app/Contents/MacOS/Chromium"; do
-    [ -x "$c" ] && { printf '%s' "$c"; return 0; }
+    [ -x "$c" ] && { printf '%s\n' "$c"; found=0; }
   done
-  return 1
+  return "$found"
 }
-chrome="$(find_chrome)" || { echo "report: no Chrome found (install Google Chrome or Chromium, or set AGENT_HARNESS_CHROME)" >&2; exit 2; }
+chromes="$(find_chromes)" || { echo "report: no Chrome found (install Google Chrome or Chromium, or set AGENT_HARNESS_CHROME)" >&2; exit 2; }
 
 M="$(main_checkout)" || { echo "report: not inside a git repository" >&2; exit 1; }
 wt="$(reg_get "$slug" '.path // empty' || true)"
@@ -53,7 +55,10 @@ CSP="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data
 profile="$(mktemp -d)"
 trap 'rm -rf "$profile"' EXIT
 printf '%s\n' "<meta http-equiv=\"Content-Security-Policy\" content=\"$CSP\">" | cat - "$html" >"$profile/report.html"
-"$chrome" --headless=new --disable-gpu --no-first-run --disable-features=FileSystemAccessAPI --user-data-dir="$profile/profile" --screenshot="$out" --window-size=1200,1600 "file://$profile/report.html" >/dev/null 2>&1 || true
+while IFS= read -r chrome; do
+  "$chrome" --headless=new --disable-gpu --no-first-run --disable-features=FileSystemAccessAPI --user-data-dir="$profile/profile" --screenshot="$out" --window-size=1200,1600 "file://$profile/report.html" >/dev/null 2>&1 || true
+  [ ! -s "$out" ] || break
+done <<<"$chromes"
 [ -s "$out" ] || { echo "report: Chrome produced no screenshot at $out" >&2; exit 1; }
 reg_update "$slug" --arg r "$out" '.report = $r' || true
 echo "$out"
