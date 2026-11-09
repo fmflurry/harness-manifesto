@@ -22,13 +22,13 @@ case "${1:-}" in
       top="$(git -C "$real" rev-parse --show-toplevel 2>/dev/null)" || { echo "agent-harness: --repo $repo is not a git checkout" >&2; exit 2; }
       top="$(builtin cd -P "$top" && builtin pwd -P)"
       [ "$top" = "$real" ] || { echo "agent-harness: --repo $repo is not the top level of a git checkout ($top is)" >&2; exit 2; }
-      # The calling session's guard keys its push fast path off its own goal state: name the target repo there.
+      # Every session's guard reads this per-user list, so a push into the target repo's goal worktrees from any other
+      # session takes the full check while that repo keeps goal files.
       if [ "$sub" = ship-init ]; then
-        caller="$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')" || caller=""
         target="$(git -C "$real" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')" || target=""
-        if [ -n "$caller" ] && [ -n "$target" ] && [ "$caller" != "$target" ]; then
-          mkdir -p "$caller/.claude/state/goals-foreign"
-          printf '%s\n' "$target" >"$caller/.claude/state/goals-foreign/$(printf '%s' "$target" | git hash-object --stdin)"
+        if [ -n "$target" ]; then
+          mkdir -p "$HOME/.claude/state/goals-foreign"
+          printf '%s\n' "$target" >"$HOME/.claude/state/goals-foreign/$(printf '%s' "$target" | git hash-object --stdin)"
         fi
       fi
       builtin cd "$real"

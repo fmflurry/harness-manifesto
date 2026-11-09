@@ -7,7 +7,9 @@ case "${OSTYPE:-}" in msys* | cygwin* | win32*) jq() { command jq "$@" | tr -d '
 jqn() { MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' jq "$@"; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-FX="$TMP/fx"; mkdir -p "$FX" "$TMP/state" "$TMP/proj/.claude"
+FX="$TMP/fx"; mkdir -p "$FX" "$TMP/state" "$TMP/proj/.claude" "$TMP/home"
+# Per-user harness state (such as --repo goal markers) must never land in the caller's real home.
+export HOME="$TMP/home"
 pass=0; failn=0
 ok() { pass=$((pass + 1)); }
 bad() { failn=$((failn + 1)); echo "FAIL: $*"; }
@@ -2498,7 +2500,7 @@ check "--repo ship-init: worktree belongs to the target repo" test "$(git -C "$L
 check "--repo ship-init: registry entry in the target repo" test "$(lreg feat-ui-repo-x .goal)" = "remote goal"
 check "--repo ship-init: goal state under the target main checkout" test -f "$(scoped_goal_file "$LT")" -a "$(dirname "$(scoped_goal_file "$LT")")" = "$LM/.claude/state/goals"
 check "--repo ship-init: the caller repo gets no goal state" test ! -e "$LA/.claude/state/goals" -a ! -e "$LA/.git/agent-harness"
-check "--repo ship-init: the caller repo gets a marker naming the target repo" grep -qxF "$LM" "$LA"/.claude/state/goals-foreign/*
+check "--repo ship-init: the per-user marker names the target repo" grep -qxF "$LM" "$HOME"/.claude/state/goals-foreign/*
 LCWD="$LA" LH agent-harness goal pr 9 --repo "$LT" >/dev/null 2>&1; rc=$?
 check "--repo goal pr: exits 0" test $rc -eq 0
 check "--repo goal pr: writes the target worktree's goal" test "$(jq -r .pr "$(scoped_goal_file "$LT")")" = 9
@@ -3100,6 +3102,9 @@ check "push guard: the relative gitdir fixture is a valid worktree" test "$(git 
 check "push guard: a linked worktree with a relative gitdir is still gated" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LX push origin feat/ui-cross-x")"
 printf '%s\n' "$LXG" >"$LX/.git"
 check "gh pr create guard: from another repo, cd into an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LX && gh pr create --fill")"
+LCWD="$LM" LH agent-harness ship-init feat ui cross-y --goal "cross from inside" --repo "$LM" >"$FX/out" 2>/dev/null; LY="$(cat "$FX/out")"
+( cd "$LY" && echo y >y && git add y && git commit -qm Y ) >/dev/null 2>&1
+check "push guard: a --repo goal started while the shell sat in the target repo still gates a plain push" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LY push origin feat/ui-cross-y")"
 LCWD="$LA" LH agent-harness goal review code pass --repo "$LX" >/dev/null 2>&1
 LCWD="$LA" LH agent-harness goal review security pass --repo "$LX" >/dev/null 2>&1
 check "push guard: from another repo, the --repo goal's own reviews allow the push" bash -c '! grep -q deny <<<"$1"' _ "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LX && git push -u origin feat/ui-cross-x")"

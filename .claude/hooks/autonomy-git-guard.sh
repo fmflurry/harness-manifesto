@@ -2075,11 +2075,11 @@ case "$BASE_A$BASE_B" in *\\* | *\"* | *\'* | *$'\n'*) pushfast=0 ;; esac
 gate_on && pushfast=0
 # A push run in another goal worktree (cd, git -C) is gated by that worktree's goal, so no fast path while any goal exists.
 [ "$AUTO" = 1 ] && [ -n "$(find "$STATE_DIR/goals" -maxdepth 1 -name '*.json' 2>/dev/null | head -n 1)" ] && pushfast=0
-# The same goes for a goal this session started in another repo: ship-init --repo leaves a marker naming that repo's
-# main checkout, and while that checkout keeps goal files every push takes the slow path, which resolves directories.
-if [ "$AUTO" = 1 ] && [ "$pushfast" = 1 ] && [ -d "$STATE_DIR/goals-foreign" ]; then
+# The same goes for a goal started in another repo: ship-init --repo leaves a per-user marker naming that repo's main
+# checkout, and while that checkout keeps goal files every push takes the slow path, which resolves directories.
+if [ "$AUTO" = 1 ] && [ "$pushfast" = 1 ] && [ -d "$HOME/.claude/state/goals-foreign" ]; then
   set +f
-  for pf_m in "$STATE_DIR"/goals-foreign/*; do
+  for pf_m in "$HOME"/.claude/state/goals-foreign/*; do
     [ -f "$pf_m" ] || continue
     IFS= read -r pf_main <"$pf_m" || pf_main=""
     [[ "$pf_main" == /* || "$pf_main" == [A-Za-z]:[/\\]* ]] || { pushfast=0; break; }
