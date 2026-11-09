@@ -2080,7 +2080,8 @@ gate_on && pushfast=0
 # the words ambiguous. Found without forking: walk up to .git; a linked worktree names its main checkout in it.
 pf_goal_dir() {
   local d="$1" orig line main="" g
-  [[ "$d" == /* || "$d" == [A-Za-z]:* ]] || d="$cwd/$d"
+  # A relative target depends on earlier cd and -C words, which this scan does not simulate.
+  [[ "$d" == /* || "$d" == [A-Za-z]:* ]] || return 0
   [ -e "$d" ] || return 1
   # Symlinks resolved first (phys_dir sets d through dynamic scope, without forking).
   orig="$d"; phys_dir "$orig"; [ -n "$d" ] || d="$orig"
