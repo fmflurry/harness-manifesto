@@ -59,6 +59,11 @@ jobs:
       - name: Guard tests under the system bash 3.2
         if: runner.os == 'macOS'
         run: GUARD_BASH=/bin/bash RUN_ONLY=guard bash scripts/agent-harness/test/run.sh
+      # Windows runs only the guard subset: its guard job alone takes about 13 minutes, and the rest of the suite's
+      # fixtures (worktrees, symlinks, POSIX paths) have never been made to run under Git Bash.
+      - name: Full harness suite
+        if: runner.os != 'Windows'
+        run: bash scripts/agent-harness/test/run.sh
       - name: Hook tests
         run: bash scripts/cursor-plugin/test-hooks.sh
       - name: Guard phase profile (informational)

@@ -6,7 +6,8 @@ case "${OSTYPE:-}" in msys* | cygwin* | win32*) jq() { command jq "$@" | tr -d '
 # Only the jq calls that build hook input skip MSYS path conversion; native git needs it for /tmp paths.
 jqn() { MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' jq "$@"; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# Canonical: on macOS mktemp gives /var/..., a symlink to /private/var/..., and git reports the resolved path.
+TMP="$(cd "$(mktemp -d)" && pwd -P)"; trap 'rm -rf "$TMP"' EXIT
 FX="$TMP/fx"; mkdir -p "$FX" "$TMP/state" "$TMP/proj/.claude" "$TMP/home"
 # Per-user harness state (such as --repo goal markers) must never land in the caller's real home.
 export HOME="$TMP/home"
@@ -2895,6 +2896,13 @@ if [ -n "$REAL_CHROME" ]; then
   env -u AGENT_HARNESS_CHROME bash -c 'cd "$1" && shift && "$@"' _ "$LM" env -u GH_BIN -u ORCA_BIN -u AGENT_HARNESS_TEST -u AGENT_STATE_DIR -u CLAUDE_PROJECT_DIR PATH="$TMP/lsleep:$TMP/lbin:$PATH" bash "$H/report.sh" "$LS" "$FX/r.html" "$LT/docs/agent-reports/real.png" >"$FX/out" 2>&1; rc=$?
   check "report with real Chrome: renders a PNG" test "$rc|$(head -c 4 "$LT/docs/agent-reports/real.png" 2>/dev/null | tail -c 3)" = "0|PNG"
 fi
+mkdir -p "$TMP/lbroken" "$TMP/lfake"; printf '#!/bin/sh\nexit 126\n' >"$TMP/lbroken/google-chrome"; # The fake takes the name right after google-chrome in report.sh's order, so no real browser on PATH comes between.
+cp "$TMP/lbin/fake-chrome" "$TMP/lfake/google-chrome-stable"
+chmod +x "$TMP/lbroken/google-chrome" "$TMP/lfake/google-chrome-stable"
+printf '\211PNG stale' >"$LT/docs/agent-reports/fallback.png"
+env -u AGENT_HARNESS_CHROME bash -c 'cd "$1" && shift && "$@"' _ "$LM" env -u GH_BIN -u ORCA_BIN -u AGENT_HARNESS_TEST -u AGENT_STATE_DIR -u CLAUDE_PROJECT_DIR PATH="$TMP/lsleep:$TMP/lbroken:$TMP/lfake:$TMP/lbin:$PATH" bash "$H/report.sh" "$LS" "$FX/r.html" "$LT/docs/agent-reports/fallback.png" >"$FX/out" 2>&1; rc=$?
+check "report: a broken Chrome on PATH falls through to the next candidate" test "$rc|$(head -c 4 "$LT/docs/agent-reports/fallback.png" 2>/dev/null | tail -c 3)" = "0|PNG"
+check "report: a stale PNG from an earlier run does not stop the fallthrough" grep -q fake "$LT/docs/agent-reports/fallback.png"
 
 # dispatcher
 lw_fixture git
@@ -3708,7 +3716,7 @@ for gate in "${STOP_COPIES[@]}"; do
   for _ in 1 2 3 4 5 6; do outs="$outs$(sg_stop "$gate" '{"session_id":"sess-gate"}')"; done
   check "stop-gate ($gl) in-flight subagent marker: stops are allowed" test -z "$outs"
   check "stop-gate ($gl) in-flight subagent marker: stop_blocks unchanged" test "$(sg_goal .stop_blocks)" = 4
-  touch -d '30 minutes ago' "$TMP/notify/sess-gate/inflight/marker"
+  touch -t "$(date -v-30M +%Y%m%d%H%M.%S 2>/dev/null || date -d '30 minutes ago' +%Y%m%d%H%M.%S)" "$TMP/notify/sess-gate/inflight/marker"
   sg_stop "$gate" '{"session_id":"sess-gate"}' >/dev/null
   check "stop-gate ($gl) stale subagent marker counts" test "$(sg_goal .status)" = escalated
   rm -rf "$TMP/notify"

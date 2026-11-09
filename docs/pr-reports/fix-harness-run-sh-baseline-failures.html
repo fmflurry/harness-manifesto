@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>run.sh baseline failures: triage</title>
+<style>
+body{margin:0;background:#FAF6EE;color:#2b2722;font:16px/1.5 Georgia,"Times New Roman",serif}
+main{max-width:980px;margin:0 auto;padding:32px 20px}h1{font-size:27px;margin:0 0 4px}h2{font-size:19px;margin:26px 0 10px}
+.sub{color:#6b6257;margin:0 0 18px}.card{background:#fff;border:1px solid #e8dfd0;border-radius:12px;padding:14px 18px;margin:10px 0}
+.bar{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0;font-size:13px;color:#fff}
+.bar div{display:flex;align-items:center;justify-content:center}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:7px 8px;border-bottom:1px solid #efe7da;vertical-align:top}th{color:#6b6257;font-weight:normal}
+.real{color:#a33b2b;font-weight:bold}.test{color:#8a6d3b}code{font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f3ede2;padding:1px 4px;border-radius:4px}
+.big{font-size:30px;font-weight:bold}.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+@media (max-width:720px){.row{grid-template-columns:1fr}h1{font-size:22px}}
+</style></head><body><main>
+<h1>run.sh: 75 failures → 0</h1>
+<p class="sub">The 75 failures that already failed on master come down to four causes: two real bugs and two macOS portability bugs in the tests. No test is deleted. CI now runs the full suite.</p>
+
+<div class="row">
+<div class="card"><div class="big">75 → 0</div>failures, macOS bash 5 and bash 3.2</div>
+<div class="card"><div class="big">2769</div>tests passing (was 2692 + 75 failing; +2 new)</div>
+<div class="card"><div class="big">2</div>real bugs fixed (REST fallback, Chrome selection)</div>
+</div>
+
+<h2>Where the 75 came from</h2>
+<div class="bar"><div style="width:93.3%;background:#a33b2b">70 · REST PR view rejects body</div><div style="width:2.7%;background:#c77d3a" title="Chrome">1</div><div style="width:2.7%;background:#8a6d3b" title="tmp path">2</div><div style="width:2.7%;background:#6b8a3b" title="touch -d">2</div></div>
+
+<div class="card"><table>
+<tr><th>Group</th><th>Cause</th><th>Kind</th><th>Fix</th></tr>
+<tr><td>graphql down (70)</td><td>ship-merge asks <code>pr view --json …,body</code> (added for ADO sync). When GraphQL is down, the REST fallback <code>gh_rest_pr_view</code> only accepts a fixed list of fields, so it returned 1 before calling gh: <i>ship-merge refused: cannot read PR</i>.</td><td class="real">real bug</td><td><code>lib.sh</code>: accept <code>body</code>, map <code>.body // ""</code></td></tr>
+<tr><td>report with real Chrome (1)</td><td>A stale <code>/opt/homebrew/bin/chromium</code> wrapper points at a deleted Chromium.app. <code>report.sh</code> took the first candidate on PATH and never reached Google Chrome.app, so live report screenshots failed.</td><td class="real">real bug</td><td><code>report.sh</code>: try each candidate until one renders; new test with a broken first candidate</td></tr>
+<tr><td>state dir, env gate (2)</td><td>On macOS <code>mktemp -d</code> returns <code>/var/…</code>, a symlink to <code>/private/var/…</code>, and git reports the resolved path</td><td class="test">test, macOS</td><td><code>run.sh</code>: canonical <code>$TMP</code></td></tr>
+<tr><td>stale subagent marker (2)</td><td><code>touch -d '30 minutes ago'</code> is GNU-only, so the marker stayed fresh</td><td class="test">test, BSD</td><td><code>touch -t</code> with a <code>date -v</code> / <code>date -d</code> timestamp</td></tr>
+</table></div>
+
+<h2>CI</h2>
+<div class="card">Before, CI ran only <code>RUN_ONLY=guard</code>, which is how a regression breaking 70 tests went unnoticed. Now the git-guard workflow adds a <b>Full harness suite</b> step on ubuntu (mawk, gawk) and macOS. Windows stays on the guard subset, with the reason in the workflow: its guard job alone takes about 13 minutes, and the suite's worktree, symlink and POSIX-path fixtures have never run under Git Bash.</div>
+
+<h2>Checks</h2>
+<div class="card">run.sh: 2769 passed, 0 failed under bash 5 and /bin/bash 3.2. Mutation check: with the old <code>report.sh</code>, both Chrome tests fail. The 70 REST tests failed before the fix and pass after. cursor-plugin check OK (no plugin change). shellcheck clean on <code>report.sh</code>.</div>
+
+<h2>Risks</h2>
+<div class="card">The new CI step adds a few minutes per non-Windows job. If a Linux runner turns up an environment difference, CI will show it, which is the point of the step. <code>report.sh</code> may now start Chrome more than once when earlier candidates fail; each attempt clears the output first, uses its own throwaway profile, and the loop stops at the first PNG.</div>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/settings-opencode  fix/harness-run-sh-baseline-failures  pr n/a. Status: partial.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">cursor 0, claude 0, opencode 0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr></table>
+<p style="margin:10px 0 0">Tools: none</p>
+<p style="margin:4px 0 0">Skills: none</p>
+<p style="margin:4px 0 0">Agents: main 0</p>
+<p style="margin:4px 0 0">Failure tools: none. Durations: n/a.</p>
+</section>
+</main></body></html>
