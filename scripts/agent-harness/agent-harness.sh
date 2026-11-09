@@ -1,5 +1,5 @@
 #!/bin/bash -p
-# Usage: agent-harness.sh autonomy|goal|notify|ship-init|ship-merge|cleanup|prune-backups|teardown-merged-worktree|worktree-rm|report|pr-report|pr-report-check|pr-report-links|memory-lint|ado-state|kpi|eval [args...]
+# Usage: agent-harness.sh autonomy|goal|notify|ship-init|ship-merge|cleanup|prune-backups|prune-branches|teardown-merged-worktree|worktree-rm|report|pr-report|pr-report-check|pr-report-links|memory-lint|ado-state|kpi|eval [args...]
 for _fn in $(builtin compgen -A function); do builtin unset -f "$_fn"; done
 builtin unset _fn
 builtin set -euo pipefail
@@ -7,7 +7,7 @@ dir="$(builtin cd -P "${BASH_SOURCE[0]%/*}" && builtin pwd -P)"
 [ ! -f "$dir/.installed" ] || PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 case "${1:-}" in
   pr-provenance) shift; builtin exec node "$dir/pr-provenance.mjs" "$@" ;;
-  autonomy | goal | notify | ship-init | ship-merge | cleanup | prune-backups | teardown-merged-worktree | worktree-rm | report | pr-report | pr-report-check | pr-report-links | memory-lint | ado-state | kpi | eval)
+  autonomy | goal | notify | ship-init | ship-merge | cleanup | prune-backups | prune-branches | teardown-merged-worktree | worktree-rm | report | pr-report | pr-report-check | pr-report-links | memory-lint | ado-state | kpi | eval)
     sub="$1"; shift
     case "$sub" in ship-init | ship-merge | cleanup | teardown-merged-worktree | worktree-rm | goal) takes_repo=1 ;; *) takes_repo="" ;; esac
     args=("$@")
@@ -38,5 +38,5 @@ case "${1:-}" in
       case "$a" in --repo | --repo=*) echo "agent-harness: --repo goes last, as --repo <absolute path>" >&2; exit 2 ;; esac
     done
     builtin exec /bin/bash -p "$dir/$sub.sh" "$@" ;;
-  *) echo "usage: agent-harness.sh autonomy|goal|notify|ship-init|ship-merge|cleanup|prune-backups|teardown-merged-worktree|worktree-rm|report|pr-report|pr-report-check|pr-report-links|memory-lint|ado-state|kpi|eval [args...]" >&2; exit 2 ;;
+  *) echo "usage: agent-harness.sh autonomy|goal|notify|ship-init|ship-merge|cleanup|prune-backups|prune-branches|teardown-merged-worktree|worktree-rm|report|pr-report|pr-report-check|pr-report-links|memory-lint|ado-state|kpi|eval [args...]" >&2; exit 2 ;;
 esac

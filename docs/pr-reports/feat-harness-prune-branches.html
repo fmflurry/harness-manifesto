@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>agent-harness prune-branches</title>
+<style>
+body{margin:0;background:#FAF6EE;color:#2b2722;font:16px/1.5 Georgia,"Times New Roman",serif}
+main{max-width:980px;margin:0 auto;padding:32px 20px}
+h1{font-size:28px;margin:0 0 4px}h2{font-size:19px;margin:28px 0 10px}
+.sub{color:#6b6257;margin:0 0 20px}
+.card{background:#fff;border:1px solid #e8dfd0;border-radius:12px;padding:16px 18px;margin:12px 0;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.step{background:#fff;border:1px solid #e8dfd0;border-radius:10px;padding:10px 12px;font-size:14px}
+.step b{display:block;font-size:13px;color:#8a6d3b;text-transform:uppercase;letter-spacing:.04em}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #efe7da}
+th{color:#6b6257;font-weight:normal}
+.k{color:#2f6b3a}.d{color:#a33b2b}code{font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f3ede2;padding:1px 4px;border-radius:4px}
+@media (max-width:720px){.flow{grid-template-columns:1fr 1fr}h1{font-size:23px}}
+</style></head><body><main>
+<h1><code>agent-harness prune-branches [--confirmed]</code></h1>
+<p class="sub">Removes local branches that are already merged into <code>origin/&lt;base&gt;</code>. Without <code>--confirmed</code> it only lists what it would delete. It never touches remotes.</p>
+
+<h2>Decision flow, per local branch</h2>
+<div class="flow">
+<div class="step"><b>1 · skip</b><code>backup/*</code> (prune-backups owns these), the base branch, the current branch</div>
+<div class="step"><b>2 · keep</b>symbolic refs, branches named in a goal file or registry entry, branches checked out in any worktree</div>
+<div class="step"><b>3 · keep</b>tip equal to <code>origin/&lt;base&gt;</code> (no commits of its own yet), or tip not an ancestor of <code>refs/remotes/origin/&lt;base&gt;</code></div>
+<div class="step"><b>4 · delete</b>dry run prints <i>would be deleted</i>; <code>--confirmed</code> runs <code>update-ref --no-deref -d ref sha</code></div>
+</div>
+
+<h2>Behaviour test (run.sh fixture)</h2>
+<div class="card"><table>
+<tr><th>Branch</th><th>State</th><th>Result</th></tr>
+<tr><td>merged</td><td>tip in origin/master</td><td class="d">deleted (with --confirmed)</td></tr>
+<tr><td>claimed</td><td>merged, named by a goal</td><td class="k">kept · claimed by a goal</td></tr>
+<tr><td>in-worktree</td><td>merged, checked out elsewhere</td><td class="k">kept · checked out in a worktree</td></tr>
+<tr><td>at-base</td><td>tip == origin/master</td><td class="k">kept · no commits of its own yet</td></tr>
+<tr><td>unmerged + tag <code>origin/master</code></td><td>tag spoof attempt</td><td class="k">kept · not in origin/master</td></tr>
+<tr><td>symref</td><td>symbolic ref</td><td class="k">kept · symbolic ref</td></tr>
+<tr><td>backup/x, master, current</td><td>—</td><td class="k">untouched</td></tr>
+<tr><td>origin/* remote refs</td><td>—</td><td class="k">untouched</td></tr>
+<tr><td>unreadable goal file</td><td>—</td><td class="k">refuses, deletes nothing</td></tr>
+</table></div>
+
+<h2>Guard</h2>
+<div class="card">Allowed: <code>agent-harness prune-branches</code>, <code>agent-harness prune-branches --confirmed</code>, and the installed script with the same args. Denied with a message naming the documented shape: <code>--force</code>, extra args, env prefix, a repo-local <code>./x</code> script, <code>./agent-harness</code>, the <code>agent-harness.sh</code> launcher, <code>bash -x</code>. <code>check_prune_backups</code> is generalized to <code>check_prune &lt;name&gt;</code>; the prune-backups denial text is unchanged (guard differential: 0 differences).</div>
+
+<h2>Files</h2>
+<div class="card"><table>
+<tr><td><code>scripts/agent-harness/prune-branches.sh</code></td><td>new command</td></tr>
+<tr><td><code>scripts/agent-harness/agent-harness.sh</code></td><td>dispatch + usage</td></tr>
+<tr><td><code>.claude/hooks/autonomy-git-guard.sh</code> (+ plugin copy)</td><td>exact allowed shape, denial text</td></tr>
+<tr><td><code>scripts/cursor-plugin/lib.mjs</code></td><td>plugin rewrite accepts <code>$PRUNE_NAME.sh</code></td></tr>
+<tr><td>autonomy + question-handling rules, ship skill, README EN/FR, git-specialist</td><td>deletion list now includes prune-branches</td></tr>
+<tr><td>plugin 0.4.43</td><td>version bump + changelog</td></tr>
+</table></div>
+
+<h2>Checks</h2>
+<div class="card">run.sh: 2686 passed, 75 failed. All 75 are the known baseline failures (diffed by name). npm test: same baseline failures. Plugin check OK. shellcheck clean on the new script.</div>
+
+<h2>Risks</h2>
+<div class="card">This is a new command that deletes branches. It only deletes local refs whose tip is reachable from the remote-tracking base, and never one that a goal or worktree claims. A deleted branch can be recreated from origin or the reflog. It is listed under Locked decisions for Florian.</div>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/settings-opencode  feat/harness-prune-branches  pr n/a. Status: partial.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">cursor 0, claude 0, opencode 0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr></table>
+<p style="margin:10px 0 0">Tools: none</p>
+<p style="margin:4px 0 0">Skills: none</p>
+<p style="margin:4px 0 0">Agents: main 0</p>
+<p style="margin:4px 0 0">Failure tools: none. Durations: n/a.</p>
+</section>
+</main></body></html>

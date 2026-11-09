@@ -38,6 +38,10 @@ unresolved threads, a `ship-merge` refusal) and loop. Escalate only a human-only
   ref and a branch checked out in any worktree. One already in `refs/remotes/origin/<base>` is deleted; any other is
   archived to `refs/harness/backups/<name>` first (the branch reflog is not kept), and a taken archive name keeps the
   branch. Nothing else.
+- `agent-harness prune-branches [--confirmed]`: deletes local branches other than `backup/*` whose tip is already in
+  `refs/remotes/origin/<base>` and that no goal file or registry entry claims. It keeps the base and current branch, a
+  branch checked out in any worktree, a symbolic ref, and a branch still at the tip of `origin/<base>`. It never touches
+  a remote branch. Nothing else.
 - `agent-harness teardown-merged-worktree <pr>` (run by `agent-harness ship-merge` for a registered goal), only after the PR is MERGED:
   removes the registered goal worktree of that PR, then its remote and local head branch, then its registry file. It runs
   only when every check in the worktree destruction rule passes, and it never touches the main checkout. Nothing else.
@@ -53,7 +57,7 @@ These stay forbidden in every mode:
 - `git push --mirror` and `git push --all`
 - raw worktree removal: `git worktree remove|prune|move`, `orca worktree rm`, and recursive deletion of a worktree directory. `agent-harness worktree-rm <path> --confirmed` is allowed only under the checks in rule (d).
 - raw branch deletion: `git branch -D`, `git push --delete` or `git push origin :<ref>`, `gh api -X DELETE .../git/refs/heads/...`.
-  Only `agent-harness cleanup` and `agent-harness prune-backups` delete branches.
+  Only `agent-harness cleanup`, `agent-harness prune-backups` and `agent-harness prune-branches` delete branches.
 - commands on the deny list, and any merge other than `agent-harness ship-merge`
 - `--no-verify`, or weakening a check: disabling or skipping a test, job or required check, `continue-on-error`, deleting a check, lowering thresholds
 - merging a PR that matches `protectedPaths` (in `.claude/agent-harness.json`). A human merges it with `--confirmed`.

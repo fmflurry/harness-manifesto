@@ -1023,7 +1023,8 @@ the branch, and the registry (`skills/ship/SKILL.md`, Blocked path).
   clean worktree whose branch is merged (including a squash merge detected by `gh pr view --json state`).
   `agent-harness teardown-merged-worktree <pr>` removes the registered goal worktree after that PR is MERGED, in
   autonomous mode, and deletes its branches and registry. Never delete a branch except through that teardown,
-  `agent-harness cleanup`, or `agent-harness prune-backups` for leftover `backup/*` branches.
+  `agent-harness cleanup`, `agent-harness prune-backups` for leftover `backup/*` branches, or
+  `agent-harness prune-branches` for merged local branches nothing claims.
 - Never merge a PR that matches `protectedPaths` while the flag is on. A human passes `--confirmed`.
 - Never add a label, post a comment, or create a status to get past a `ship-merge` refusal.
 - Never notify for progress. The run does not trigger builds or releases.
@@ -1039,6 +1040,7 @@ agent-harness goal decisions-path        # this checkout's decision log: .claude
 agent-harness teardown-merged-worktree <pr>  # after MERGED: remove the registered goal worktree, branches and registry (run by ship-merge)
 agent-harness cleanup <pr> [--keep-branch] [--no-checkout]  # after MERGED: delete the PR's head branch and goal backups (unregistered PRs; also run by ship-merge; teardown passes --no-checkout)
 agent-harness prune-backups [--confirmed]  # leftover backup/* branches no goal or registry lists: delete those in origin/<base>, archive the rest under refs/harness/backups/ (dry run without --confirmed)
+agent-harness prune-branches [--confirmed]  # local non-backup branches already in origin/<base> that no goal, registry entry, worktree or HEAD claims: delete them; never remotes (dry run without --confirmed)
 ```
 
 **Another repo.** `ship-init`, `ship-merge`, `cleanup`, `teardown-merged-worktree`, `worktree-rm` and `goal` take a trailing `--repo <absolute path>`, so a session whose working directory is repo A can manage a goal of repo B without Orca: `agent-harness ship-init feat ui x --goal "..." --repo /abs/path/to/B`. The path must be the top level of a git checkout: B's main checkout, or a goal worktree of B for `goal`. A relative path, a subdirectory, a non-git directory, or `--repo` anywhere but last is refused. The goal registry and goal state are B's. The calling session's stop gate still reads its own checkout, so it neither blocks on nor binds to B's goal. `ship-init --repo` leaves a per-user marker under `~/.agent-harness/goals-foreign/`. While B keeps goal files, every session's git guard sends every push through the full check, which gates a push into B's goal worktree by B's own reviews. The guard allows exactly that trailing shape as one plain command. A `cd` prefix, an env prefix such as `CLAUDE_PROJECT_DIR=`, and substitution stay denied.
@@ -1482,6 +1484,7 @@ agent-harness goal decisions-path        # journal de décisions de ce checkout 
 agent-harness teardown-merged-worktree <pr>  # après MERGED : retire le worktree enregistré, les branches et le registre (lancé par ship-merge)
 agent-harness cleanup <pr> [--keep-branch]  # après MERGED : supprime la branche de la PR et les backups du goal, archive sous `refs/harness/backups/` ceux que la fusion ne contient pas (PR non enregistrées ; aussi lancé par ship-merge)
 agent-harness prune-backups [--confirmed]  # branches backup/* orphelines (aucun goal ni registre) : supprime celles déjà dans origin/<base>, archive les autres sous refs/harness/backups/ (simulation sans --confirmed)
+agent-harness prune-branches [--confirmed]  # branches locales hors backup déjà dans origin/<base>, qu'aucun goal, registre, worktree ni HEAD ne réclame : les supprime ; jamais les branches distantes (simulation sans --confirmed)
 ```
 
 **Autre dépôt.** `ship-init`, `ship-merge`, `cleanup`, `teardown-merged-worktree`, `worktree-rm` et `goal` acceptent un `--repo <chemin absolu>` final : une session dont le répertoire de travail est le dépôt A gère un goal du dépôt B sans Orca, par exemple `agent-harness ship-init feat ui x --goal "..." --repo /chemin/abs/vers/B`. Le chemin doit être la racine d'un checkout git : le checkout principal de B, ou un worktree de goal de B pour `goal`. Un chemin relatif, un sous-répertoire, un répertoire hors git, ou un `--repo` ailleurs qu'en dernier sont refusés. Le registre et l'état du goal sont ceux de B. Le stop gate de la session appelante lit toujours son propre checkout : il ne bloque pas sur le goal de B et ne s'y lie pas. `ship-init --repo` laisse un marqueur par utilisateur dans `~/.agent-harness/goals-foreign/`. Tant que B garde des fichiers de goal, le git guard de chaque session fait passer chaque push par la vérification complète, qui soumet un push dans le worktree du goal de B aux revues de B. Le guard autorise exactement cette forme finale, en une commande simple. Un préfixe `cd`, un préfixe d'environnement comme `CLAUDE_PROJECT_DIR=`, et toute substitution restent refusés.
