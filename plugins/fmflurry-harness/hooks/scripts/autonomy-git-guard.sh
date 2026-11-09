@@ -2078,10 +2078,12 @@ gate_on && pushfast=0
 # The same goes for a push into another repo's checkout, whose goals live in that repo's state: no fast path when a
 # cd, pushd or -C target sits in a checkout whose main checkout keeps goal state, or when quoting or a backslash makes
 # the words ambiguous. Found without forking: walk up to .git; a linked worktree names its main checkout in it.
-pf_seen=""
 pf_goal_dir() {
-  local d="$1" line main="" g
+  local d="$1" orig line main="" g
   [[ "$d" == /* || "$d" == [A-Za-z]:* ]] || d="$cwd/$d"
+  [ -e "$d" ] || return 1
+  # Symlinks resolved first (phys_dir sets d through dynamic scope, without forking).
+  orig="$d"; phys_dir "$orig"; [ -n "$d" ] || d="$orig"
   while [ -n "$d" ]; do
     if [ -d "$d/.git" ]; then main="$d"; break; fi
     if [ -f "$d/.git" ]; then
@@ -2093,19 +2095,25 @@ pf_goal_dir() {
     d="${d%/*}"
   done
   [ -n "$main" ] || return 1
-  case " $pf_seen " in *" $main "*) return 1 ;; esac
+  # Goal-less mains are cached, one per line: a path read from .git or split from the command holds no newline.
+  case "$pf_seen" in *$'\n'"$main"$'\n'*) return 1 ;; esac
   set +f
   for g in "$main"/.claude/state/goals/*.json; do [ -e "$g" ] && { set -f; return 0; }; done
   set -f
-  pf_seen="$pf_seen $main"
+  pf_seen="$pf_seen$main"$'\n'
   return 1
 }
+pf_seen=$'\n'
 if [ "$AUTO" = 1 ] && [ "$pushfast" = 1 ] && [[ "$cmd" =~ (^|[^[:alnum:]_-])(cd|pushd|-C)[[:space:]] ]]; then
   if [[ "$cmd" == *[\\\"\']* ]]; then
     pushfast=0
   else
-    pf_prev=""
+    pf_prev="" pf_nc=0
     for pf_w in $cmd; do
+      # git reads each -C relative to the previous one: more than one -C is not scanned.
+      [ "$pf_w" != git ] || pf_nc=0
+      [ "$pf_w" != -C ] || pf_nc=$((pf_nc + 1))
+      [ "$pf_nc" -lt 2 ] || { pushfast=0; break; }
       case "$pf_prev" in cd | pushd | -C) pf_goal_dir "$pf_w" && { pushfast=0; break; } ;; esac
       pf_prev="$pf_w"
     done

@@ -3083,6 +3083,10 @@ check "push guard: the caller repo has no goal of its own" test -z "$(find "$LA/
 check "push guard: from another repo, a plain git -C push into an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LX push origin feat/ui-cross-x")"
 check "push guard: from another repo, cd into an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "cd $LX && git push -u origin feat/ui-cross-x")"
 check "push guard: from another repo, git -C an unreviewed --repo goal worktree denies" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LX push -u origin feat/ui-cross-x")"
+mkdir -p "$LX/sub"; ln -s "$LX/sub" "$LA/lnk"
+check "push guard: a symlink into a --repo goal worktree's subdirectory is still gated" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C lnk push origin feat/ui-cross-x")"
+check "push guard: stacked -C into a --repo goal worktree is still gated" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LROOT -C main-wt/feat-ui-cross-x push origin feat/ui-cross-x")"
+rm -f "$LA/lnk"; rmdir "$LX/sub"
 LXG="$(cat "$LX/.git")"; printf 'gitdir: ../../main/.git/worktrees/%s\n' "${LXG##*/}" >"$LX/.git"
 check "push guard: the relative gitdir fixture is a valid worktree" test "$(git -C "$LX" rev-parse --abbrev-ref HEAD 2>/dev/null)" = feat/ui-cross-x
 check "push guard: a linked worktree with a relative gitdir is still gated" lw_denied "$(lw_guard autonomy-git-guard.sh "$LA" "git -C $LX push origin feat/ui-cross-x")"
