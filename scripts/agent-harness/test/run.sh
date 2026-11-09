@@ -2497,7 +2497,8 @@ check "--repo ship-init: prints the target worktree" test "$(cat "$FX/out")" = "
 check "--repo ship-init: worktree belongs to the target repo" test "$(git -C "$LT" rev-parse --path-format=absolute --git-common-dir)" = "$(git -C "$LM" rev-parse --path-format=absolute --git-common-dir)"
 check "--repo ship-init: registry entry in the target repo" test "$(lreg feat-ui-repo-x .goal)" = "remote goal"
 check "--repo ship-init: goal state under the target main checkout" test -f "$(scoped_goal_file "$LT")" -a "$(dirname "$(scoped_goal_file "$LT")")" = "$LM/.claude/state/goals"
-check "--repo ship-init: the caller repo gets no goal state" test ! -e "$LA/.claude" -a ! -e "$LA/.git/agent-harness"
+check "--repo ship-init: the caller repo gets no goal state" test ! -e "$LA/.claude/state/goals" -a ! -e "$LA/.git/agent-harness"
+check "--repo ship-init: the caller repo gets a marker naming the target repo" grep -qxF "$LM" "$LA"/.claude/state/goals-foreign/*
 LCWD="$LA" LH agent-harness goal pr 9 --repo "$LT" >/dev/null 2>&1; rc=$?
 check "--repo goal pr: exits 0" test $rc -eq 0
 check "--repo goal pr: writes the target worktree's goal" test "$(jq -r .pr "$(scoped_goal_file "$LT")")" = 9
