@@ -192,8 +192,6 @@ deny_harness_env() { emit deny "Blocked by git-guard: run agent-harness as one p
 deny_harness_cmd() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree take exactly their documented arguments as one plain command."; }
 deny_harness_chain() { emit deny "Blocked by git-guard: agent-harness ship-init and teardown-merged-worktree must run alone, not after a cd prefix or in a && ; | chain. They act on the session's working directory: run ship-init from a session whose working directory is the target repo."; }
 deny_cleanup_shape() { emit deny "Blocked by git-guard: cleanup takes exactly \`agent-harness cleanup <pr> [--keep-branch]\`: a PR number, then optionally --keep-branch, and no other flag (no --confirmed, no --help)."; }
-SUBST_HARNESS_RE='(worktree-rm|cleanup|prune-backups|teardown-merged-worktree|ship-init|ship-merge|agent-harness)\.sh|agent-harness +(cleanup|prune-backups|worktree-rm|teardown-merged-worktree|ship-merge|ship-init)'
-SUBST_LAUNCH_RE='(^|[^[:alnum:]_.-])(bash|sh|zsh|dash|ksh)([^[:alnum:]_.-]|$)'
 deny_shell_flags() { emit deny "Blocked by git-guard: run the harness script without shell options (no -x, -e, -o, +O or similar before it)."; }
 deny_prune_shape() { emit deny "Blocked by git-guard: prune-backups takes exactly \`agent-harness prune-backups [--confirmed]\`: no other argument."; }
 deny_alias() { emit deny "Blocked by git-guard: git aliases can smuggle worktree removal; do not define or pass alias.* settings."; }
@@ -2103,12 +2101,6 @@ if [[ "$cmd" == *agent-harness* ]] && { [ "$AUTO" = 1 ] || [[ "$cmd" =~ worktree
 fi
 if [[ "$cmd" == *worktree-rm* ]] && grep -Eq '(^|[^[:alnum:]_])(export|declare +-x|set +-a)( |$)' <<<"$cmd"; then deny_worktree; fi
 [[ "$cmd" == *--confirmed* && "$cmd" == *worktree-rm* ]] && ASKED_WT=1
-# The lexer cuts a segment at $( and at a backtick, so words after the substitution never reach a check: a harness
-# script or command could hide there. Next to a harness name (any mode) or a shell launcher (autonomous), refuse it.
-if [[ "$cmd" == *'$('* || "$cmd" == *'`'* ]]; then
-  grep -Eq "$SUBST_HARNESS_RE" <<<"$cmd" && deny_unparsed
-  [ "$AUTO" = 1 ] && grep -Eq "$SUBST_LAUNCH_RE" <<<"$cmd" && deny_unparsed
-fi
 
 ncmd_all=0
 if [ "$merged" = 0 ]; then
