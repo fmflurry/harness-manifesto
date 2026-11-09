@@ -55,8 +55,11 @@ CSP="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data
 profile="$(mktemp -d)"
 trap 'rm -rf "$profile"' EXIT
 printf '%s\n' "<meta http-equiv=\"Content-Security-Policy\" content=\"$CSP\">" | cat - "$html" >"$profile/report.html"
+n=0
 while IFS= read -r chrome; do
-  "$chrome" --headless=new --disable-gpu --no-first-run --disable-features=FileSystemAccessAPI --user-data-dir="$profile/profile" --screenshot="$out" --window-size=1200,1600 "file://$profile/report.html" >/dev/null 2>&1 || true
+  n=$((n + 1))
+  rm -f "$out"
+  "$chrome" --headless=new --disable-gpu --no-first-run --disable-features=FileSystemAccessAPI --user-data-dir="$profile/profile.$n" --screenshot="$out" --window-size=1200,1600 "file://$profile/report.html" >/dev/null 2>&1 || true
   [ ! -s "$out" ] || break
 done <<<"$chromes"
 [ -s "$out" ] || { echo "report: Chrome produced no screenshot at $out" >&2; exit 1; }

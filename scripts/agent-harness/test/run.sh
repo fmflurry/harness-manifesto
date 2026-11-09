@@ -2898,8 +2898,10 @@ if [ -n "$REAL_CHROME" ]; then
 fi
 mkdir -p "$TMP/lbroken" "$TMP/lfake"; printf '#!/bin/sh\nexit 126\n' >"$TMP/lbroken/google-chrome"; cp "$TMP/lbin/fake-chrome" "$TMP/lfake/chromium"
 chmod +x "$TMP/lbroken/google-chrome" "$TMP/lfake/chromium"
+printf '\211PNG stale' >"$LT/docs/agent-reports/fallback.png"
 env -u AGENT_HARNESS_CHROME bash -c 'cd "$1" && shift && "$@"' _ "$LM" env -u GH_BIN -u ORCA_BIN -u AGENT_HARNESS_TEST -u AGENT_STATE_DIR -u CLAUDE_PROJECT_DIR PATH="$TMP/lsleep:$TMP/lbroken:$TMP/lfake:$TMP/lbin:$PATH" bash "$H/report.sh" "$LS" "$FX/r.html" "$LT/docs/agent-reports/fallback.png" >"$FX/out" 2>&1; rc=$?
 check "report: a broken Chrome on PATH falls through to the next candidate" test "$rc|$(head -c 4 "$LT/docs/agent-reports/fallback.png" 2>/dev/null | tail -c 3)" = "0|PNG"
+check "report: a stale PNG from an earlier run does not stop the fallthrough" grep -q fake "$LT/docs/agent-reports/fallback.png"
 
 # dispatcher
 lw_fixture git

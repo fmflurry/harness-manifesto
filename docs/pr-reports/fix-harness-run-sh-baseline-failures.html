@@ -17,7 +17,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;p
 
 <div class="row">
 <div class="card"><div class="big">75 → 0</div>failures, macOS bash 5 and bash 3.2</div>
-<div class="card"><div class="big">2768</div>tests passing (was 2692 + 75 failing; +1 new)</div>
+<div class="card"><div class="big">2769</div>tests passing (was 2692 + 75 failing; +2 new)</div>
 <div class="card"><div class="big">2</div>real bugs fixed (REST fallback, Chrome selection)</div>
 </div>
 
@@ -36,10 +36,10 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;p
 <div class="card">Before, CI ran only <code>RUN_ONLY=guard</code>, which is how a regression breaking 70 tests went unnoticed. Now the git-guard workflow adds a <b>Full harness suite</b> step on ubuntu (mawk, gawk) and macOS. Windows stays on the guard subset, with the reason in the workflow: its guard job alone takes about 13 minutes, and the suite's worktree, symlink and POSIX-path fixtures have never run under Git Bash.</div>
 
 <h2>Checks</h2>
-<div class="card">run.sh: 2768 passed, 0 failed under bash 5 and /bin/bash 3.2. Mutation check: with the old <code>report.sh</code>, both Chrome tests fail. The 70 REST tests failed before the fix and pass after. cursor-plugin check OK (no plugin change). shellcheck clean on <code>report.sh</code>.</div>
+<div class="card">run.sh: 2769 passed, 0 failed under bash 5 and /bin/bash 3.2. Mutation check: with the old <code>report.sh</code>, both Chrome tests fail. The 70 REST tests failed before the fix and pass after. cursor-plugin check OK (no plugin change). shellcheck clean on <code>report.sh</code>.</div>
 
 <h2>Risks</h2>
-<div class="card">The new CI step adds a few minutes per non-Windows job. If a Linux runner turns up an environment difference, CI will show it, which is the point of the step. <code>report.sh</code> may now start Chrome more than once when earlier candidates fail; each run uses the same throwaway profile and stops at the first PNG.</div>
+<div class="card">The new CI step adds a few minutes per non-Windows job. If a Linux runner turns up an environment difference, CI will show it, which is the point of the step. <code>report.sh</code> may now start Chrome more than once when earlier candidates fail; each attempt clears the output first, uses its own throwaway profile, and the loop stops at the first PNG.</div>
 
 <section id="kpi-metrics" style="margin-top:28px">
 <h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
