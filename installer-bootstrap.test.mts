@@ -1559,6 +1559,7 @@ test("OpenCode reinstall moves retired files out of discovery and keeps them in 
     const retiredRoot = join(opencodeDir, ".settings-opencode-retired");
     const [stamp] = readdirSync(retiredRoot);
     const backup = join(retiredRoot, stamp ?? "");
+    assert.equal(lstatSync(backup).mode & 0o777, 0o700);
     assert.equal(readFileSync(join(backup, "plugins", "notification.ts"), "utf8"), "// old notification plugin\n");
     assert.equal(readFileSync(join(backup, "plugins", "llm-metrics-lib", "format.ts"), "utf8"), "// old metrics lib\n");
     assert.equal(readlinkSync(join(backup, "plugins", "notification-gate.ts")), userHelper);

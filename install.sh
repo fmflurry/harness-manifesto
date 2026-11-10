@@ -440,9 +440,13 @@ prune_retired_opencode_files() {
     for rel in "${RETIRED_OPENCODE_PATHS[@]}"; do
         src="$TARGET_OPENCODE/$rel"
         [ -e "$src" ] || [ -L "$src" ] || continue
+        if [ ! -d "$backup" ]; then
+            mkdir -p "$backup"
+            chmod 700 "$backup"
+        fi
         dst="$backup/$rel"
         mkdir -p "$(dirname "$dst")"
-        chmod 700 "$backup"
+        # mv renames a symlink itself; it never moves the file the link points to.
         if ! mv "$src" "$dst"; then
             err "failed to retire $src"
             return 1
