@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ship only the OpenCode 2 plugins</title>
+<style>
+  body { margin:0; padding:32px; background:#FAF6EE; color:#2B2620; font-family: Georgia, "Iowan Old Style", serif; }
+  h1 { font-size:26px; margin:0 0 4px; } .sub { color:#6E655A; margin:0 0 22px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .card { background:#FFFDF8; border:1px solid #E6DDCC; border-radius:14px; padding:16px 18px; }
+  .full { grid-column:1 / -1; } h2 { font-size:17px; margin:0 0 10px; }
+  ul { margin:6px 0 0 18px; padding:0; font-size:14px; } li { margin:3px 0; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size:12.5px; background:#F1EADB; padding:1px 4px; border-radius:4px; }
+  .bad { color:#B4543F; } .good { color:#3F7A4F; }
+  table { width:100%; border-collapse:collapse; font-size:14px; } td, th { text-align:left; padding:6px 8px; border-bottom:1px solid #E6DDCC; vertical-align:top; } th { color:#6E655A; font-weight:normal; }
+  @media (max-width:760px) { body { padding:16px; } .grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<h1>Ship only the OpenCode 2 plugins</h1>
+<p class="sub">OpenCode 2 listed 10 failed plugins. Each was an OpenCode 1 file or a library folder it tried to load as a plugin.</p>
+<div class="grid">
+  <div class="card full">
+    <table>
+      <tr><th>What OpenCode 2 saw</th><th>Before</th><th>After</th></tr>
+      <tr><td>8 OpenCode 1 files: <code>autonomy.ts</code>, <code>code-memory.ts</code>, <code>commit-provenance.ts</code>, <code>domain-rules.ts</code>, <code>kpi.ts</code>, <code>mistral-affinity.js</code>, <code>secret-file-guard.ts</code>, <code>tool-budget.ts</code></td><td class="bad">failed to load (no <code>id</code>/<code>setup</code>); the folder ports did the work</td><td class="good">removed; only <code>plugins/&lt;name&gt;/index.ts</code> ship</td></tr>
+      <tr><td><code>plugins/kdco-primitives/</code></td><td class="bad">its <code>index.ts</code> loaded as a plugin and failed</td><td class="good">moved to <code>plugins/lib/kdco-primitives/</code></td></tr>
+      <tr><td><code>plugins/ecc-hooks.ts</code> (installed only)</td><td class="bad">stray file, failed</td><td class="good">retired on reinstall</td></tr>
+      <tr><td><code>opencode.jsonc</code></td><td class="bad"><code>plugin</code> listed <code>./plugins/*.ts</code> files OpenCode 2 skips</td><td class="good"><code>plugins</code> names only <code>opencode-skill-creator</code></td></tr>
+      <tr><td>Git guard on a shell call in another checkout</td><td class="bad">judged the session folder (PR #81 needed a session move)</td><td class="good">judges the call's <code>workdir</code></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Reinstall</h2>
+    <ul>
+      <li>The retired list gains the 8 V1 files, <code>ecc-hooks.ts</code> and the old <code>kdco-primitives/</code>.</li>
+      <li>They move to <code>.settings-opencode-retired/&lt;stamp&gt;/</code>, outside plugin discovery.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h2>Tests</h2>
+    <ul>
+      <li>The autonomy, domain-rules, kpi and commit-provenance tests now drive the OpenCode 2 plugins through a fake context.</li>
+      <li>New: the guard receives the shell call's workdir (failed first).</li>
+      <li><code>npm test</code> 271 pass, 4 environment-bound failures (same on master) · strict typecheck clean · <code>run.sh</code> 2769 passed · cursor-plugin check OK</li>
+      <li>Fixes the version pins 0.4.44 left at 0.4.43.</li>
+    </ul>
+  </div>
+</div>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/settings-opencode  chore/plugins-drop-opencode-1-plugins  pr n/a. Status: complete.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">19m03s</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">12m53s (gaps over 5m excluded)</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">cursor 1, claude 0, opencode 1</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">1</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr></table>
+<p style="margin:10px 0 0">Tools: shell 42, write 9, edit 6, Bash 4</p>
+<p style="margin:4px 0 0">Skills: none</p>
+<p style="margin:4px 0 0">Agents: main 57, generalPurpose 4</p>
+<p style="margin:4px 0 0">Failure tools: none. Durations: mean 13s, max 6m14s, n 56.</p>
+</section>
+</body>
+</html>

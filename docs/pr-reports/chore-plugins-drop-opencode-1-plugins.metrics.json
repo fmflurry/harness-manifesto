@@ -1,0 +1,65 @@
+{
+  "feature": {
+    "repo": "fmflurry/settings-opencode",
+    "branch": "chore/plugins-drop-opencode-1-plugins",
+    "pr": null
+  },
+  "prs": [],
+  "wall_ms": 1143000,
+  "active_ms": 773000,
+  "idle_gap_min": 5,
+  "sessions": {
+    "cursor": 1,
+    "claude": 0,
+    "opencode": 1
+  },
+  "tools": [
+    {
+      "name": "shell",
+      "count": 42
+    },
+    {
+      "name": "write",
+      "count": 9
+    },
+    {
+      "name": "edit",
+      "count": 6
+    },
+    {
+      "name": "Bash",
+      "count": 4
+    }
+  ],
+  "skills": [],
+  "agents": [
+    {
+      "name": "main",
+      "calls": 57
+    },
+    {
+      "name": "generalPurpose",
+      "calls": 4
+    }
+  ],
+  "tool_failures": 0,
+  "failure_tools": [],
+  "duration_ms": {
+    "n": 56,
+    "sum": 719995,
+    "mean": 12857,
+    "max": 374049
+  },
+  "guard_blocks": 1,
+  "guards": {
+    "git": 1
+  },
+  "review_rounds": 0,
+  "fix_rounds": 0,
+  "tokens": null,
+  "tokens_known": 0,
+  "events": 122,
+  "first_ts": "2026-11-10T22:34:57Z",
+  "last_ts": "2026-11-10T22:54:00Z",
+  "partial": false
+}
