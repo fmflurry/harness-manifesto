@@ -12,7 +12,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { z } from "zod"
-import type { OpencodeClient } from "../kdco-primitives"
+import type { OpencodeClient } from "../lib/kdco-primitives"
 import {
 	escapeAppleScript,
 	escapeBash,
@@ -23,7 +23,7 @@ import {
 	Mutex,
 	TimeoutError,
 	withTimeout,
-} from "../kdco-primitives"
+} from "../lib/kdco-primitives"
 
 // =============================================================================
 // TEMP SCRIPT HELPER

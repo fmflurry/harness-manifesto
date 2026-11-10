@@ -506,9 +506,9 @@ test('hooks are registered for Claude, Cursor, OpenCode, and project installs', 
   assert.match(commands, /kpi-emit\.sh postToolUse/);
   assert.match(commands, /kpi-emit\.sh sessionEnd/);
   assert.match(commands, /kpi-emit\.sh sessionStart/);
-  const plugin = fs.readFileSync(path.join(repo, 'plugins/kpi.ts'), 'utf8');
-  assert.match(plugin, /tool\.execute\.before/);
-  assert.match(plugin, /tool\.execute\.after/);
+  const plugin = fs.readFileSync(path.join(repo, 'plugins/kpi/index.ts'), 'utf8');
+  assert.match(plugin, /tool\.hook\("execute\.before"/);
+  assert.match(plugin, /tool\.hook\("execute\.after"/);
   assert.match(plugin, /message\.updated/);
 });
 

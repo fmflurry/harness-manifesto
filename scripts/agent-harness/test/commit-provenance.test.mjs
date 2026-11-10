@@ -19,6 +19,35 @@ function setup(t) {
   return dir;
 }
 
+// Installs the OpenCode 2 plugin folder into an install target. The plugin imports
+// @opencode/plugin, so the target gets the repository's node_modules.
+function installOpencodePlugin(target) {
+  const repoRoot = path.resolve(path.dirname(source), '../..');
+  const folder = path.join(target, 'plugins/commit-provenance');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.copyFileSync(path.join(repoRoot, 'plugins/commit-provenance/index.ts'), path.join(folder, 'index.ts'));
+  if (!fs.existsSync(path.join(target, 'node_modules'))) {
+    fs.symlinkSync(path.join(repoRoot, 'node_modules'), path.join(target, 'node_modules'));
+  }
+  return path.join(folder, 'index.ts');
+}
+
+// The plugin's shell create.before hook, run with no OpenCode session in this process's env.
+async function opencodeShellHook(t, pluginFile, directory) {
+  const previous = process.env.OPENCODE_SESSION_ID;
+  delete process.env.OPENCODE_SESSION_ID;
+  t.after(() => {
+    if (previous !== undefined) process.env.OPENCODE_SESSION_ID = previous;
+  });
+  const { default: plugin } = await import(pluginFile);
+  let hook;
+  await plugin.setup({
+    location: { directory },
+    shell: { hook: async (name, callback) => { if (name === 'create.before') hook = callback; } },
+  });
+  return hook;
+}
+
 test('agent commit includes installed provenance and runs existing hooks', (t) => {
   const dir = setup(t);
   const hook = path.join(dir, '.git/hooks/prepare-commit-msg');
@@ -120,7 +149,7 @@ test('Claude SessionStart scopes Git hooks to the session without rewriting comm
   assert.match(run(dir, 'git', ['log', '-1', '--format=%B']), /^Session-Id: claude-session$/m);
 });
 
-test('OpenCode shell.env carries each session id and leaves human shells alone', async (t) => {
+test('OpenCode shell hook carries each session id and leaves human shells alone', async (t) => {
   const dir = setup(t);
   run(dir, 'git', ['commit', '-qm', 'chore: baseline']);
   const target = path.join(dir, '.opencode');
@@ -130,16 +159,14 @@ test('OpenCode shell.env carries each session id and leaves human shells alone',
   fs.chmodSync(path.join(scripts, 'commit-provenance.mjs'), 0o755);
   run(dir, 'node', [path.join(scripts, 'commit-provenance.mjs'), 'setup', target]);
   run(dir, 'node', [path.join(scripts, 'commit-provenance.mjs'), 'capture', dir, target, '0.4.34']);
-  fs.mkdirSync(path.join(target, 'plugins'));
-  fs.copyFileSync(path.resolve(path.dirname(source), '../../plugins/commit-provenance.ts'), path.join(target, 'plugins/commit-provenance.ts'));
+  const pluginFile = installOpencodePlugin(target);
   run(dir, 'node', [path.join(scripts, 'commit-provenance.mjs'), 'capture', dir, target, '0.4.34']);
-  const { default: plugin } = await import(path.join(target, 'plugins/commit-provenance.ts'));
-  const hooks = await plugin({ directory: dir });
+  const createBefore = await opencodeShellHook(t, pluginFile, dir);
   const human = { env: {} };
-  await hooks['shell.env']({ cwd: dir }, human);
+  await createBefore(human);
   assert.deepEqual(human.env, {});
-  const agent = { env: {} };
-  await hooks['shell.env']({ cwd: dir, sessionID: 'opencode-session' }, agent);
+  const agent = { env: { OPENCODE_SESSION_ID: 'opencode-session' } };
+  await createBefore(agent);
   fs.writeFileSync(path.join(dir, 'file'), 'changed\n');
   run(dir, 'git', ['add', 'file']);
   run(dir, 'git', ['commit', '-qm', 'feat: session'], { env: { ...process.env, ...agent.env } });
@@ -214,21 +241,18 @@ test('global OpenCode plugin does not trust a forged project marker or hooks', a
   const dir = setup(t);
   const target = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-global-'));
   t.after(() => fs.rmSync(target, { recursive: true, force: true }));
-  fs.mkdirSync(path.join(target, 'plugins'), { recursive: true });
   fs.mkdirSync(path.join(target, 'scripts/agent-harness'), { recursive: true });
   const helper = path.join(target, 'scripts/agent-harness/commit-provenance.mjs');
   fs.copyFileSync(source, helper); fs.chmodSync(helper, 0o755);
-  const globalPlugin = path.join(target, 'plugins/commit-provenance.ts');
-  fs.copyFileSync(path.resolve(path.dirname(source), '../../plugins/commit-provenance.ts'), globalPlugin);
+  const globalPlugin = installOpencodePlugin(target);
   run(dir, 'node', [helper, 'setup', target]);
   const forged = path.join(dir, '.opencode');
   fs.mkdirSync(path.join(forged, 'scripts/agent-harness/git-hooks'), { recursive: true });
   fs.writeFileSync(path.join(forged, '.harness-provenance.json'), '{}');
   fs.writeFileSync(path.join(forged, 'scripts/agent-harness/git-hooks/prepare-commit-msg'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  const { default: plugin } = await import(globalPlugin);
-  const instance = await plugin({ directory: dir });
-  const output = { env: {} };
-  await instance['shell.env']({ cwd: dir, sessionID: 'session-1' }, output);
+  const createBefore = await opencodeShellHook(t, globalPlugin, dir);
+  const output = { env: { OPENCODE_SESSION_ID: 'session-1' } };
+  await createBefore(output);
   assert.equal(output.env.HARNESS_SHA, fs.realpathSync(target));
   assert.equal(output.env.GIT_CONFIG_VALUE_0, path.join(fs.realpathSync(target), 'scripts/agent-harness/git-hooks'));
 });

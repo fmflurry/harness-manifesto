@@ -309,7 +309,17 @@ function Move-RetiredOpencodeFiles($opencodeDir) {
         'plugins\llm-metrics-lib',
         'tui-plugins\llm-metrics.tsx',
         'scripts\llm-metrics-dashboard.ts',
-        'LLM_METRICS.md'
+        'LLM_METRICS.md',
+        'plugins\autonomy.ts',
+        'plugins\code-memory.ts',
+        'plugins\commit-provenance.ts',
+        'plugins\domain-rules.ts',
+        'plugins\kpi.ts',
+        'plugins\mistral-affinity.js',
+        'plugins\secret-file-guard.ts',
+        'plugins\tool-budget.ts',
+        'plugins\ecc-hooks.ts',
+        'plugins\kdco-primitives'
     )
     $backup = Join-Path $opencodeDir ('.settings-opencode-retired\{0}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
     foreach ($rel in $retired) {

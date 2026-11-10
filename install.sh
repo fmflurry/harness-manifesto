@@ -430,6 +430,16 @@ RETIRED_OPENCODE_PATHS=(
     tui-plugins/llm-metrics.tsx
     scripts/llm-metrics-dashboard.ts
     LLM_METRICS.md
+    plugins/autonomy.ts
+    plugins/code-memory.ts
+    plugins/commit-provenance.ts
+    plugins/domain-rules.ts
+    plugins/kpi.ts
+    plugins/mistral-affinity.js
+    plugins/secret-file-guard.ts
+    plugins/tool-budget.ts
+    plugins/ecc-hooks.ts
+    plugins/kdco-primitives
 )
 
 # Moves each retired path, file, folder or symlink, into a backup outside OpenCode's discovery.
