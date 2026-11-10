@@ -176,17 +176,17 @@ h2 { font-size: 1.12rem; margin: 0 0 .15rem; font-weight: 600; letter-spacing: .
 </head>
 <body>
 
-  <p class="eyebrow">statechart · current harness config</p>
+  <p class="eyebrow">statechart · Monolith install</p>
   <h1>The harness as a state machine</h1>
-  <p class="sub">One session, two runtimes (OpenCode plugins and Claude Code hooks) reading the same state files. The control flow is not in the prompt — it is in the gates. Colors: phase. Marks: what blocks, what only steers, what loops as a bug path.</p>
+  <p class="sub">One session, two runtimes (OpenCode plugins and Claude Code hooks) reading the same state files. The control flow is not in the prompt. It lives in the gates. Colors: phase. Marks: what blocks, what only steers, what loops as a bug path.</p>
 
   <div class="stats">
     <div class="stat"><b>53</b><span>commands</span></div>
-    <div class="stat"><b>≈100</b><span>skills</span></div>
-    <div class="stat"><b>10</b><span>subagents</span></div>
-    <div class="stat"><b>22</b><span>hooks</span></div>
-    <div class="stat"><b>28</b><span>deny rules</span></div>
-    <div class="stat"><b>14</b><span>instruction files</span></div>
+    <div class="stat"><b>80</b><span>skills</span></div>
+    <div class="stat"><b>9</b><span>subagents</span></div>
+    <div class="stat"><b>21</b><span>Claude hooks</span></div>
+    <div class="stat"><b>13</b><span>deny rules</span></div>
+    <div class="stat"><b>13</b><span>instruction files</span></div>
   </div>
 
   <!-- MODE -->
@@ -226,7 +226,7 @@ h2 { font-size: 1.12rem; margin: 0 0 .15rem; font-weight: 600; letter-spacing: .
 
         <div class="state ph-teal">
           <span class="n">Session start</span>
-          <span class="d"><code>autonomy-context.sh</code> · <code>cloud-session-bootstrap.sh</code> · <code>commit-provenance.sh</code> · <code>kpi-emit.sh</code> — then AGENTS.md + <code>instructions/monolith.md</code> load, deny list arms (Write/Edit/Read on <code>.env</code>, <code>*.key</code>, <code>*secrets*</code>)</span>
+          <span class="d"><code>autonomy-context.sh</code> · <code>cloud-session-bootstrap.sh</code> · <code>commit-provenance.sh</code> · <code>kpi-emit.sh</code> — then AGENTS.md + <code>instructions/monolith.md</code> load, deny list arms (Write/Edit on <code>.env</code>, <code>*.key</code>, <code>*.pem</code>, <code>*secrets*</code>, <code>*credentials*</code>)</span>
         </div>
 
         <div class="edge"><span class="eline"></span><span class="elabel">you send a prompt</span><span class="earrow">▼</span></div>
@@ -242,9 +242,9 @@ h2 { font-size: 1.12rem; margin: 0 0 .15rem; font-weight: 600; letter-spacing: .
           <div class="state ph-orange" style="flex:1 1 60%">
             <span class="n">Tool call proposed</span>
             <div class="gates">
-              <div class="gate hard"><span class="tag">1</span><span><b>secret guard</b> — <code>read</code> or <code>bash</code> touching <code>.env</code> → <b>deny</b> <small>(example/sample/template exempt)</small></span></div>
+              <div class="gate hard"><span class="tag">1</span><span><b>secret guard</b> (OpenCode plugin) — <code>read</code> or <code>bash</code> touching <code>.env</code> → <b>deny</b> <small>(example/sample/template exempt)</small></span></div>
               <div class="gate hard"><span class="tag">2</span><span><b>git guard</b> — worktree removal always denied; while autonomous also merge, push-to-base, shell edit of harness files</span></div>
-              <div class="gate hard"><span class="tag">3</span><span><b>task allow-list</b> — <code>task: {"*": deny}</code>, 10 named reviewers allowed</span></div>
+              <div class="gate hard"><span class="tag">3</span><span><b>task allow-list</b> — <code>permission.task</code> in <code>opencode.jsonc</code>: <code>{"*": deny}</code>, 9 named subagents allowed</span></div>
               <div class="gate soft"><span class="tag">4</span><span><b>tool budget</b> — 3rd exploratory call with 0 edits → nudge; ratio &gt; 3 after 5 edits → <code>bash-budget:</code> line</span></div>
               <div class="gate soft"><span class="tag">5</span><span><b>rewrites</b> — <code>rtk-rewrite</code>, <code>prefer-code-memory</code>, <code>domain-rules</code>, <code>pr-visual-report</code></span></div>
             </div>
@@ -330,7 +330,7 @@ h2 { font-size: 1.12rem; margin: 0 0 .15rem; font-weight: 600; letter-spacing: .
 
         <div class="stage-lbl" style="margin-top:.8rem">subagent dispatch</div>
         <div class="state" style="background:var(--bg-soft); border-style:dashed">
-          <span class="d">allowed only for the 10 named reviewers · marker file added on dispatch · <code>subagent-stop.sh</code> pops the oldest marker FIFO · notifications stay suppressed while a marker exists</span>
+          <span class="d">allowed only for the 9 named subagents · marker file added on dispatch · <code>subagent-stop.sh</code> pops the oldest marker FIFO · notifications stay suppressed while a marker exists</span>
         </div>
       </div>
     </div>
@@ -382,7 +382,7 @@ h2 { font-size: 1.12rem; margin: 0 0 .15rem; font-weight: 600; letter-spacing: .
         <h3><span class="chip deny">breaks</span> the secret guard has two front doors</h3>
         <p><b>The rule:</b> a subagent must never read a live secret, however the command is spelled.</p>
         <p class="path">Session start ▶ Tool call proposed ▶ <code>read .env</code> / <code>bash grep .env</code> ▶ <b>Denied</b> ▶ model reroutes</p>
-        <p class="leaves"><b>Leaves out:</b> the declarative <code>deny</code> list matches literal strings (<code>Bash(cat *.env*)</code>). Wrapped forms (<code>rtk grep .env</code>, <code>xargs cat</code>) are caught only by the plugin, and <code>.env.example</code> is exempt on purpose.</p>
+        <p class="leaves"><b>Leaves out:</b> the declarative <code>deny</code> list in <code>.claude/settings.json</code> covers Write and Edit only, and the Claude <code>pre-tool-use.sh</code> hook only warns. Reads through <code>read</code> or <code>bash</code> (<code>cat .env</code>, <code>rtk grep .env</code>, <code>xargs cat</code>) are denied only by the OpenCode plugin, and <code>.env.example</code> is exempt on purpose.</p>
       </div>
 
       <div class="bug">
@@ -403,9 +403,15 @@ h2 { font-size: 1.12rem; margin: 0 0 .15rem; font-weight: 600; letter-spacing: .
   </section>
 
   <p class="foot">
-    Source of truth: <code>~/.config/opencode/opencode.jsonc</code> (agents, tool allow-lists, permission matrix) · <code>~/.config/opencode/plugins/*.ts</code> · <code>~/.claude/settings.json</code> (hook matrix, 13 allow / 28 deny) · <code>~/.claude/hooks/*.sh</code> · <code>~/.config/opencode/instructions/*.md</code>.<br />
+    Source of truth: <code>opencode.jsonc</code> (agents, tool allow-lists, permission matrix) · <code>plugins/*.ts</code> · <code>.claude/settings.json</code> (hook matrix, 13 allow / 13 deny) · <code>.claude/hooks/*.sh</code> · <code>instructions/*.md</code>.<br />
     Visual vocabulary adapted from @poteto's /statechart in backnotprop/pstack (MIT · Lauren Tan).
   </p>
+<!--
+MIT License — Copyright (c) 2026 Lauren Tan
+Permission notice from https://github.com/backnotprop/pstack/blob/main/LICENSE
+must accompany substantial portions of the Software (including the mark/phase
+color system adapted from skills/statechart/references/render.md).
+-->
 
 </body>
 </html>

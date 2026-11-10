@@ -122,13 +122,13 @@ Mêmes rails sur OpenCode, Claude Code et Cursor. Conductor délègue. Monolith 
 
 [Open the statechart](docs/harness/harness-config.html). Visual vocabulary adapted from @poteto's /statechart in backnotprop/pstack (MIT · Lauren Tan).
 
-Control flow lives in the gates, not in the prompt. The secret guard, the git guard, the task allow-list, and the tool budget are plugins on OpenCode and hooks on Claude Code, reading `opencode.jsonc`, `.claude/settings.json`, and `.claude/state/`. A hard gate denies and the model reroutes. A soft gate only steers. Autonomous mode adds the goal lifecycle: one worktree, one branch, one goal file, and a stop gate that blocks until the PR merges or the run escalates. The last panel lists three places where the config holds together in theory and slips in practice.
+The chart follows a Monolith install. Control flow lives in the gates, not in the prompt. On OpenCode the secret guard, the git guard, and the tool budget are plugins. On Claude Code the git guard and the tool budget are hooks, and the secret guard is the `permissions.deny` list in `.claude/settings.json`, which covers Write and Edit only. The subagent allow-list is the `permission.task` block in `opencode.jsonc`. Autonomy state lives in `.claude/state/`. A hard gate denies and the model reroutes. A soft gate only steers. Autonomous mode adds the goal lifecycle: one worktree, one branch, one goal file, and a stop gate that blocks until the PR merges or the run escalates. The last panel lists three places where the config holds together in theory and slips in practice.
 
 <a id="machine-fr"></a>
 
 ### Le harness comme machine à états
 
-Le schéma et la [page HTML](docs/harness/harness-config.html) suivent une session entière : démarrage, appel d'outil, arrêt, puis le cycle d'un objectif en mode autonome. Les gardes décident. Un garde dur refuse et le modèle change de route. Un garde souple ne fait qu'aiguiller. Le vocabulaire visuel est adapté de `/statechart` de @poteto dans backnotprop/pstack (MIT, Lauren Tan).
+Le schéma suit une installation Monolith. Avec la [page HTML](docs/harness/harness-config.html), il suit une session entière : démarrage, appel d'outil, arrêt, puis le cycle d'un objectif en mode autonome. Les gardes décident. Un garde dur refuse et le modèle change de route. Un garde souple ne fait qu'aiguiller. Le vocabulaire visuel est adapté de `/statechart` de @poteto dans backnotprop/pstack (MIT, Lauren Tan).
 
 ## On this page
 
