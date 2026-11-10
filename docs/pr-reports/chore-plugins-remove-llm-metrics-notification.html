@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remove llm-metrics and notification</title>
+<style>
+  body { margin:0; padding:32px; background:#FAF6EE; color:#2B2620; font-family: Georgia, "Iowan Old Style", serif; }
+  h1 { font-size:26px; margin:0 0 4px; } .sub { color:#6E655A; margin:0 0 22px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .card { background:#FFFDF8; border:1px solid #E6DDCC; border-radius:14px; padding:16px 18px; }
+  .full { grid-column:1 / -1; } h2 { font-size:17px; margin:0 0 10px; }
+  ul { margin:6px 0 0 18px; padding:0; font-size:14px; } li { margin:3px 0; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size:12.5px; background:#F1EADB; padding:1px 4px; border-radius:4px; }
+  .flow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:14px; }
+  .step { background:#F1EADB; border-radius:10px; padding:8px 12px; } .arrow { color:#6E655A; }
+  @media (max-width:760px) { body { padding:16px; } .grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<h1>Remove llm-metrics and notification</h1>
+<p class="sub">The owner does not use them. The repo stops shipping them, and a reinstall moves the old copies out of OpenCode's plugin discovery.</p>
+<div class="grid">
+  <div class="card">
+    <h2>Removed</h2>
+    <ul>
+      <li><code>plugins/notification.ts</code>, <code>plugins/lib/notification-gate.ts</code> and its test</li>
+      <li><code>plugins/llm-metrics.ts</code>, <code>plugins/llm-metrics-lib/</code></li>
+      <li><code>tui-plugins/llm-metrics.tsx</code>, <code>scripts/llm-metrics-dashboard.ts</code>, <code>LLM_METRICS.md</code></li>
+      <li>their entries in <code>opencode.jsonc</code>, <code>tui.json</code>, <code>package.json</code> and both READMEs</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h2>Kept</h2>
+    <ul>
+      <li>Claude's <code>notification.sh</code> hook and the <code>notify-*.sh</code> scripts</li>
+      <li>the idle notification sent by the <code>autonomy</code> plugin</li>
+      <li><code>tool-budget</code> prints raw counts instead of <code>formatNumber</code></li>
+    </ul>
+  </div>
+  <div class="card full">
+    <h2>Reinstall on an existing machine</h2>
+    <div class="flow">
+      <span class="step">rsync copies the repo (never deletes)</span><span class="arrow">→</span>
+      <span class="step"><code>prune_retired_opencode_files</code> / <code>Move-RetiredOpencodeFiles</code></span><span class="arrow">→</span>
+      <span class="step">each retired path moved to <code>.settings-opencode-retired/&lt;stamp&gt;/</code></span><span class="arrow">→</span>
+      <span class="step">OpenCode no longer loads them</span>
+    </div>
+    <ul>
+      <li>Replaces the one-off <code>notification-gate</code> helper migration in <code>install.sh</code> and <code>bootstrap.ps1</code>.</li>
+      <li>Files, folders and symlinks are moved, never deleted; a symlink's target is untouched.</li>
+    </ul>
+  </div>
+  <div class="card full">
+    <h2>Tests</h2>
+    <ul>
+      <li>New: the repo ships none of the retired paths and <code>install.sh</code> lists each; a reinstall moves seeded files, a folder and a symlink into the backup; the PowerShell prune lists each path and runs after the copy.</li>
+      <li><code>npm test</code> 271 pass, 4 environment-bound failures (same on master) · strict typecheck clean · <code>run.sh</code> 2769 passed · cursor-plugin check OK (0.4.44)</li>
+    </ul>
+  </div>
+</div>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/settings-opencode  chore/plugins-remove-llm-metrics-notification  pr n/a. Status: complete.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">4s</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">4s (gaps over 5m excluded)</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">cursor 1, claude 0, opencode 0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr></table>
+<p style="margin:10px 0 0">Tools: Bash 4</p>
+<p style="margin:4px 0 0">Skills: none</p>
+<p style="margin:4px 0 0">Agents: main 0, generalPurpose 4</p>
+<p style="margin:4px 0 0">Failure tools: none. Durations: n/a.</p>
+</section>
+</body>
+</html>

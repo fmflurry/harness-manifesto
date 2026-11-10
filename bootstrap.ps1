@@ -298,39 +298,27 @@ function Test-ReparsePointsTo($path, $expectedTarget) {
     return (Test-SamePath $target $expectedTarget)
 }
 
-function Move-LegacyNotificationHelper($opencodeDir) {
-    $legacyPath = Join-Path $opencodeDir 'plugins\notification-gate.ts'
-    $managedPath = Join-Path $opencodeDir 'plugins\lib\notification-gate.ts'
-    $legacyItem = Get-Item -LiteralPath $legacyPath -Force -ErrorAction SilentlyContinue
-    if ($null -eq $legacyItem) { return }
-
-    $isReparsePoint = (($legacyItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
-    if (-not $isReparsePoint -and
-        (Test-Path -LiteralPath $legacyPath -PathType Leaf) -and
-        (Test-Path -LiteralPath $managedPath -PathType Leaf) -and
-        ((Get-FileHash -LiteralPath $legacyPath -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $managedPath -Algorithm SHA256).Hash)) {
-        Remove-Item -LiteralPath $legacyPath -Force
-        Ok "removed known managed legacy plugin helper $legacyPath"
-        return
-    }
-
-    $backupRoot = Join-Path $opencodeDir 'plugins\.settings-opencode-backups'
-    New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
-    do {
-        $backupDir = Join-Path $backupRoot ("notification-gate.{0}" -f [Guid]::NewGuid().ToString('N'))
-    } while (Test-Path -LiteralPath $backupDir)
-    New-Item -ItemType Directory -Path $backupDir | Out-Null
-    $backupPath = Join-Path $backupDir 'notification-gate.backup'
-    try {
-        Move-Item -LiteralPath $legacyPath -Destination $backupPath
-    } catch {
-        Remove-Item -LiteralPath $backupDir -Force -ErrorAction SilentlyContinue
-        throw
-    }
-    if ($isReparsePoint) {
-        Warn "preserved symbolic notification helper outside plugin discovery at $backupPath"
-    } else {
-        Warn "preserved modified notification helper outside plugin discovery at $backupPath"
+# Files the repo no longer ships. The copy never deletes, so without this a reinstall would
+# leave them in place and OpenCode would keep loading them.
+function Move-RetiredOpencodeFiles($opencodeDir) {
+    $retired = @(
+        'plugins\notification.ts',
+        'plugins\notification-gate.ts',
+        'plugins\lib\notification-gate.ts',
+        'plugins\llm-metrics.ts',
+        'plugins\llm-metrics-lib',
+        'tui-plugins\llm-metrics.tsx',
+        'scripts\llm-metrics-dashboard.ts',
+        'LLM_METRICS.md'
+    )
+    $backup = Join-Path $opencodeDir ('.settings-opencode-retired\{0}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    foreach ($rel in $retired) {
+        $src = Join-Path $opencodeDir $rel
+        if ($null -eq (Get-Item -LiteralPath $src -Force -ErrorAction SilentlyContinue)) { continue }
+        $dst = Join-Path $backup $rel
+        New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
+        Move-Item -LiteralPath $src -Destination $dst
+        Ok "retired $rel (kept at $dst)"
     }
 }
 
@@ -554,7 +542,7 @@ if (-not $doClaude) {
 }
 
 if ($opencodeTargetReady -and -not $opencodeTargetIsSource) {
-    Move-LegacyNotificationHelper $OpencodeDir
+    Move-RetiredOpencodeFiles $OpencodeDir
 }
 
 

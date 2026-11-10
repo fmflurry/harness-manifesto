@@ -14,7 +14,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 /**
- * OpenCode side of the harness KPI log. Independent of llm-metrics.
+ * OpenCode side of the harness KPI log.
  * Records session boundaries, skill names, subagent types, and tool results.
  *
  * V2 replaced the `message.updated`/`properties` event family with

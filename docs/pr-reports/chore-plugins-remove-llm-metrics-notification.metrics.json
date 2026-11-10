@@ -1,0 +1,46 @@
+{
+  "feature": {
+    "repo": "fmflurry/settings-opencode",
+    "branch": "chore/plugins-remove-llm-metrics-notification",
+    "pr": null
+  },
+  "prs": [],
+  "wall_ms": 4000,
+  "active_ms": 4000,
+  "idle_gap_min": 5,
+  "sessions": {
+    "cursor": 1,
+    "claude": 0,
+    "opencode": 0
+  },
+  "tools": [
+    {
+      "name": "Bash",
+      "count": 4
+    }
+  ],
+  "skills": [],
+  "agents": [
+    {
+      "name": "main",
+      "calls": 0
+    },
+    {
+      "name": "generalPurpose",
+      "calls": 4
+    }
+  ],
+  "tool_failures": 0,
+  "failure_tools": [],
+  "duration_ms": null,
+  "guard_blocks": 0,
+  "guards": {},
+  "review_rounds": 0,
+  "fix_rounds": 0,
+  "tokens": null,
+  "tokens_known": 0,
+  "events": 8,
+  "first_ts": "2026-11-10T22:13:32Z",
+  "last_ts": "2026-11-10T22:13:36Z",
+  "partial": false
+}

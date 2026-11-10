@@ -353,7 +353,7 @@ opencode
 
 Vous devriez voir :
 
-- La barre latérale TUI `llm-metrics` et la bannière panda apparaissent.
+- La bannière panda apparaît.
 
 Puis une commande slash :
 
@@ -403,7 +403,7 @@ Si un nouveau plugin apparaît, OpenCode le prend au redémarrage suivant. Si un
 
 ## Mesurer les variantes
 
-Conductor et Monolith partagent un journal local, distinct du moniteur tok/s d'OpenCode (`llm-metrics`). OpenCode, Claude Code et Cursor écrivent les mêmes événements.
+Conductor et Monolith partagent un journal local. OpenCode, Claude Code et Cursor écrivent les mêmes événements.
 
 Les hooks de session, de stop et de sous-agent, les gardes PreToolUse, `PostToolUse`, `ship-stop-gate`, et le verdict de revue ajoutent une ligne JSON à `~/.agent-harness/kpi/events.jsonl`. `AGENT_HARNESS_KPI_LOG` change le chemin. `AGENT_HARNESS_KPI=0` coupe l'écriture. Chaque ligne porte la variante lue dans `.harness-variant` (`orchestration` compte comme Conductor), la version du harness, l'hôte (`opencode`, `claude` ou `cursor`), le dépôt, la branche, la session et l'heure. Un outil Skill ajoute `skill`. Un outil Task ou Agent, et un stop de sous-agent, ajoutent `agent`. `tool_result` porte `tool_name`, `duration_ms` et `ok`. Les tokens viennent de `message.updated` (OpenCode) ou du transcript de stop (Claude). Cursor les laisse null. La liste des champs est `docs/kpi-events.md`. Le journal n'a ni prompt, ni secret, ni chemin absolu.
 
@@ -430,7 +430,7 @@ agent-harness eval --run-model
 
 ### Mesurer les variantes
 
-Conductor et Monolith s'observent avec le même journal, distinct du moniteur tok/s d'OpenCode (`llm-metrics`). Le détail des champs est ci-dessus et dans `docs/kpi-events.md`. Les commandes sont les mêmes : `agent-harness kpi report`, `agent-harness kpi feature`, `agent-harness eval`.
+Conductor et Monolith s'observent avec le même journal. Le détail des champs est ci-dessus et dans `docs/kpi-events.md`. Les commandes sont les mêmes : `agent-harness kpi report`, `agent-harness kpi feature`, `agent-harness eval`.
 
 <a id="whats-inside"></a>
 
@@ -455,7 +455,7 @@ Les comptes ci-dessous ont été recomptés dans cet arbre le **2026-11-06**. Le
 | Scripts de hooks | 21 | `.claude/hooks/*.sh` |
 | Serveurs MCP | 6 | 1 activé (`code-memory`), 5 désactivés par défaut |
 | Fichiers d'outils custom | 4 | `run-tests`, `check-coverage`, `security-audit`, plus le barrel `index.ts` |
-| Plugins TUI | 3 | Activés dans `tui.json` : `llm-metrics`, `panda-banner`, `autonomy-status`. `caveman.tsx.disabled` n'est pas chargé |
+| Plugins TUI | 2 | Activés dans `tui.json` : `panda-banner`, `autonomy-status`. `caveman.tsx.disabled` n'est pas chargé |
 
 **Sous-agents mis en avant.** Roster Conductor complet dans [Agents](#agents-en). Sur Monolith, les noms autres que les neuf agents installés sont des skills.
 
@@ -566,12 +566,12 @@ Les hooks et les plugins OpenCode code-memory ne font rien quand la décision es
 - Skills : `skills/*/SKILL.md` (plus les docs auxiliaires) — **ensemble canonique, partagé avec Claude Code via** `sync-skills.sh`.
 - Prompts d'agents : `prompts/agents/*.txt` (26 fichiers).
 - Commandes slash : `commands/*.md` (53 modèles ; 37 épinglés dans `opencode.jsonc`, recomptés le 2026-11-06).
-- Plugins OpenCode : `plugins/*.{ts,js}` + `plugins/kdco-primitives/` + `plugins/llm-metrics-lib/` + `plugins/code-memory-lib/` + `plugins/lib/`.
+- Plugins OpenCode : `plugins/*.{ts,js}` + `plugins/kdco-primitives/` + `plugins/code-memory-lib/` + `plugins/lib/`.
 - Plugins TUI : `tui-plugins/*.tsx` (enregistrés dans `tui.json` ; `autonomy-status.tsx` est le panneau latéral d'autonomie).
 - Outils custom : `tools/*.ts`.
 - Notes de mode : `contexts/*.md`.
 - Instructions globales : `instructions/*.md` (6 chargées au démarrage de session ; les docs liées à des fichiers et les docs de situation sont des skills ou des fichiers d'instruction non chargés).
-- Scripts : `scripts/setup-package-manager.js`, `scripts/codemaps/generate.ts`, `scripts/llm-metrics-dashboard.ts` (tableau de bord llm-metrics en direct), `scripts/settings-sync.sh`, `scripts/sync-skills.sh` (synchronise l'ensemble canonique de skills vers les deux harnesses), `scripts/skill-drift-check.sh` (détecteur de drift en lecture seule).
+- Scripts : `scripts/setup-package-manager.js`, `scripts/codemaps/generate.ts`, `scripts/settings-sync.sh`, `scripts/sync-skills.sh` (synchronise l'ensemble canonique de skills vers les deux harnesses), `scripts/skill-drift-check.sh` (détecteur de drift en lecture seule).
 - Points d'entrée d'install : `bootstrap.sh`, `bootstrap.ps1`, `install.sh`, `install-cursor.sh`. `./install.sh --yes`, `settings-sync` et `bootstrap.ps1` installent Monolith quand aucune variante n'est posée. `./install.sh --local` et `./install-cursor.sh` sont Monolith par défaut. `conductor` sélectionne Conductor. `--variant` et `HARNESS_VARIANT` remplacent le défaut. `orchestration` est un alias de Conductor. Une session Claude Code distante lance `.claude/hooks/cloud-session-bootstrap.sh` au `SessionStart` quand `CLAUDE_CODE_REMOTE=true` et que le projet ne vendore pas le harness.
 - Miroir Claude : `.claude/CLAUDE.md`, `.claude/settings.json`, `.claude/hooks/`, `.claude/rules/`, `.claude/agents/`, `.claude/skills/` (synchronisés depuis l'ensemble canonique à l'install), `.claude/commands/`.
 - Exclusions volontaires (`.gitignore`) : `node_modules/`, `antigravity-*`, `.DS_Store`, fichiers locaux `.env*` sauf `.env.example`, répertoire runtime `skills/skill-creator/` (non synchronisé).
@@ -595,7 +595,7 @@ Six sujets câblés dans un fichier :
 3. `agent` : 26 définitions (modèle + effort de raisonnement + prompt + allowlist d'outils). Tous les modèles passent par l'env (`OPENCODE_MODEL_*`, `OPENCODE_REASONING_*`) — voir [Installation publique](#public-install).
 4. `command` : mappe `/<name>` -> template + sous-agent + `subtask` ; **21** entrées sont épinglées ici.
 5. `mcp` : six serveurs — `code-memory` activé ; `context7`, `blender`, `wallaby`, `Figma`, `smartbear-swagger` désactivés par défaut. Les perms `code-memory_*` sont pré-autorisées pour chaque sous-agent.
-6. `plugin` : plugins npm + locaux — `opencode-skill-creator` (npm) plus huit fichiers locaux (`kpi`, `notification`, `mistral-affinity`, `llm-metrics`, `secret-file-guard`, `tool-budget`, `autonomy`, `domain-rules`), qu'OpenCode charge aussi automatiquement depuis le répertoire des plugins.
+6. `plugin` : plugins npm + locaux — `opencode-skill-creator` (npm) plus six fichiers locaux (`kpi`, `mistral-affinity`, `secret-file-guard`, `tool-budget`, `autonomy`, `domain-rules`), qu'OpenCode charge aussi automatiquement depuis le répertoire des plugins.
 
 `dcp.jsonc` est le stub de config du plugin externe optionnel Dynamic Context Pruning.
 
@@ -838,22 +838,20 @@ Deux fichiers d'instructions de premier niveau, des rôles distincts :
 
 ### Plugins et hooks
 
-Tous les plugins TypeScript utilisent `@opencode-ai/plugin@1.4.6`. OpenCode charge automatiquement chaque fichier `.ts`/`.js` de `plugins/` ; le tableau `plugin` de `opencode.jsonc` déclare le plugin npm et huit fichiers locaux : `kpi`, `notification`, `mistral-affinity`, `llm-metrics`, `secret-file-guard`, `tool-budget`, `autonomy` et `domain-rules`.
+Tous les plugins TypeScript utilisent `@opencode-ai/plugin@1.4.6`. OpenCode charge automatiquement chaque fichier `.ts`/`.js` de `plugins/` ; le tableau `plugin` de `opencode.jsonc` déclare le plugin npm et six fichiers locaux : `kpi`, `mistral-affinity`, `secret-file-guard`, `tool-budget`, `autonomy` et `domain-rules`.
 
 - `plugins/secret-file-guard.ts` — bloque dur l'accès `read`/`bash` aux fichiers `.env` porteurs de secret ; `.env.example`/`.sample`/`.template` restent lisibles.
-- `plugins/notification.ts` — notifications de bureau à la fin de session et sur les événements question/permission ; push Bark/iPhone optionnel.
 - `plugins/mistral-affinity.js` — attache un en-tête `x-affinity` stable aux appels fournisseur Mistral / compatibles Mistral, pour l'affinité de cache.
 - `plugins/tool-budget.ts` — pousse le modèle vers la vérification plutôt que l'exploration via le prompt système (ne bloque jamais un appel d'outil).
 - `plugins/code-memory.ts` + `plugins/code-memory-lib/` — nudges auto-retrieve / auto-learn de CodeMemory (no-op quand la CLI `code-memory` est absente).
-- `plugins/llm-metrics.ts` + `plugins/llm-metrics-lib/` — moniteur temps réel du comportement LLM : accroche les événements du bus en métriques par appel (tokens, TTFT, durée, coût, modèle, finish reason, tok/s de bout en bout + de génération) ajoutées en NDJSONL dans `~/data/llm-metrics.jsonl`, adossé à un cœur pur partagé (110 tests unitaires). Local seulement, aucun egress ; la capture du texte de réponse est bornée et opt-out. Architecture complète, boutons d'env, définitions tok/s, agrégation des sous-agents et frontière de vie privée dans [`LLM_METRICS.md`](../LLM_METRICS.md).
-- `plugins/kdco-primitives/` + `plugins/lib/` — utilitaires partagés (mutex, shell, détection de terminal, résolveur de project-id, porte de notification, types).
+- `plugins/kdco-primitives/` + `plugins/lib/` — utilitaires partagés (mutex, shell, détection de terminal, résolveur de project-id, types).
 - `opencode-skill-creator` _(npm externe, déclaré dans `opencode.jsonc › plugin`)_ — échafaudage et benchmark de skills.
-- `plugins/kpi.ts` — côté OpenCode du journal KPI. Indépendant de `llm-metrics`. Enregistre les bornes de session, les noms de skills, les types de sous-agents et les résultats d'outils.
+- `plugins/kpi.ts` — côté OpenCode du journal KPI. Enregistre les bornes de session, les noms de skills, les types de sous-agents et les résultats d'outils.
 - `plugins/autonomy.ts` — côté OpenCode du mode autonome. Voir [Mode autonome](#autonomy-en).
 - `plugins/domain-rules.ts` — éteint tant que `.harness-local/domain-rules.json` ne l'active pas. Tourne avant write, edit, patch et multiedit.
 - _Non chargés :_ `plugins/ecc-hooks.ts.disabled`, `plugins/worktree.disabled`, `plugins/figma-rag.md` et `tui-plugins/caveman.tsx.disabled` sont livrés désactivés et sautés par le chargeur.
 
-**Hooks côté Claude** (`.claude/hooks/`, 21 scripts, recomptés le 2026-11-06) : `notification.sh`, `pre-tool-use.sh`, `prefer-code-memory.sh`, `rtk-rewrite.sh`, `stop.sh`, `subagent-stop.sh`, `tool-budget.sh`, `autonomy-ask-guard.sh`, `autonomy-context.sh`, `autonomy-git-guard.sh`, `cache-invalidation.sh`, `cloud-session-bootstrap.sh`, `codememory-mode.sh`, `commit-provenance.sh`, `domain-rules.sh`, `goal-state.sh`, `kpi-emit.sh`, `memory-lint.sh`, `orca-notify.sh`, `pr-visual-report.sh`, `ship-stop-gate.sh`. `notification.ts` utilise la logique partagée `plugins/lib/notification-gate` pour que les deux harnesses tirent les mêmes alertes.
+**Hooks côté Claude** (`.claude/hooks/`, 21 scripts, recomptés le 2026-11-06) : `notification.sh`, `pre-tool-use.sh`, `prefer-code-memory.sh`, `rtk-rewrite.sh`, `stop.sh`, `subagent-stop.sh`, `tool-budget.sh`, `autonomy-ask-guard.sh`, `autonomy-context.sh`, `autonomy-git-guard.sh`, `cache-invalidation.sh`, `cloud-session-bootstrap.sh`, `codememory-mode.sh`, `commit-provenance.sh`, `domain-rules.sh`, `goal-state.sh`, `kpi-emit.sh`, `memory-lint.sh`, `orca-notify.sh`, `pr-visual-report.sh`, `ship-stop-gate.sh`.
 
 <a id="tools-en"></a>
 
@@ -871,7 +869,6 @@ Outils OpenCode réutilisables exposés via `tools/index.ts` :
 
 ### Plugins TUI
 
-- `tui-plugins/llm-metrics.tsx` — barre latérale SolidJS (dans le slot `sidebar_content`) qui montre les métriques LLM en direct par session : un `~tok/s (est)` en flux, le tok/s de génération/e2e du dernier appel, tokens in/out, modèle, coût, finish reason, TTFT, et un tok/s en moyenne glissante. Agrège tout le sous-arbre des sous-agents. Voir [`LLM_METRICS.md`](../LLM_METRICS.md).
 - `tui-plugins/panda-banner.tsx` — bannière SolidJS qui rend un en-tête panda en art ASCII/blocs.
 - `tui-plugins/autonomy-status.tsx` — capsule de barre latérale pour le mode autonome, enregistrée dans `tui.json`. Le comportement est sous [Mode autonome](#autonomy-en).
 
@@ -931,7 +928,7 @@ Le cycle de vie des deux variantes est [Comment une demande avance](#request-flo
 1. Démarrage : OpenCode charge `opencode.jsonc` -> 6 instructions toujours actives -> charge automatiquement chaque plugin de `plugins/` plus les plugins TUI enregistrés dans `tui.json`. Les skills se chargent quand leur description correspond.
 2. Dev : `conductor` s'exécute — il ne peut pas écrire de fichiers ; il dispatche des appels Task vers les spécialistes. `secret-file-guard` bloque l'accès `.env` ; `tool-budget` pousse la vérification plutôt que l'exploration.
 3. Workflow : `conductor` route vers les spécialistes via Task (imposé par les permissions) ; `/plan`, `/tdd`, `/security`, etc. forcent explicitement le même routage. Le brief contract, le protocole de questions et la porte de vérification encadrent chaque passage de main.
-4. Idle/fin : `llm-metrics` persiste les métriques par appel ; `notification` envoie les alertes de fin, de question et de permission.
+4. Idle : le plugin `autonomy` lance le stop gate et envoie la notification d'inactivité.
 
 ---
 
@@ -1172,12 +1169,12 @@ Les hooks et les plugins OpenCode code-memory ne font rien quand la décision es
 - Skills: `skills/*/SKILL.md` (+ ressources auxiliaires) — **ensemble canonical, partage avec Claude Code via `sync-skills.sh`**.
 - Prompts agents: `prompts/agents/*.txt`.
 - Commandes slash: `commands/*.md`.
-- Plugins OpenCode: `plugins/*.{ts,js}` (+ `plugins/kdco-primitives/` + `plugins/llm-metrics-lib/` + `plugins/code-memory-lib/` + `plugins/lib/`).
+- Plugins OpenCode: `plugins/*.{ts,js}` (+ `plugins/kdco-primitives/` + `plugins/code-memory-lib/` + `plugins/lib/`).
 - Plugins TUI : `tui-plugins/*.tsx` (enregistrés dans `tui.json` ; `autonomy-status.tsx` est le panneau latéral d'autonomie).
 - Outils custom: `tools/*.ts`.
 - Contextes (memos de mode): `contexts/*.md`.
 - Instructions globales: `instructions/*.md` (6 chargees au demarrage; le reste est un skill ou un fichier non charge).
-- Scripts: `scripts/setup-package-manager.js`, `scripts/codemaps/generate.ts`, `scripts/llm-metrics-dashboard.ts`, `scripts/settings-sync.sh`, `scripts/sync-skills.sh`, `scripts/skill-drift-check.sh`.
+- Scripts: `scripts/setup-package-manager.js`, `scripts/codemaps/generate.ts`, `scripts/settings-sync.sh`, `scripts/sync-skills.sh`, `scripts/skill-drift-check.sh`.
 - Installeurs: `bootstrap.sh`, `bootstrap.ps1`, `install.sh`, `install-cursor.sh`. `./install.sh` demande Conductor ou Monolith (defaut Monolith); `./install.sh --yes` et `settings-sync` installent Monolith sans variante. `./install.sh conductor`, `./install.sh monolith`, `--variant` et `HARNESS_VARIANT` font le meme choix sans prompt. `orchestration` est un alias de Conductor. `./install.sh --local` et `./install-cursor.sh` sont Monolith par defaut. Une session Claude Code distante (`CLAUDE_CODE_REMOTE=true`) lance `.claude/hooks/cloud-session-bootstrap.sh` au `SessionStart` si le projet ne vendore pas le harness. `./install.sh --status` et `./install-cursor.sh --status` affichent la variante installee. `./install.sh --local` applique aussi `.harness-local/` (jamais modifié par l'installeur) par-dessus `.claude/`, `.opencode/`, `AGENTS.md`, `.cursor/` et `.agents/`, y compris quand le clone est atteint par un lien symbolique. Un répertoire ignoré affiche la raison. Le mode local écrit `./.claude/mods/autonomy-status`, et Monolith écrit `.opencode/instructions/monolith.md`. `.harness-local/exclude` liste les skills et chemins à ne pas réinstaller. Le hook domain-rules reste éteint tant que `.harness-local/domain-rules.json` ne contient pas `"enabled": true`. Détail: `docs/harness-local.md`. `./install.sh --local --status` affiche l'overlay et les exclusions.
 - Mirror Claude Code: `.claude/CLAUDE.md`, `.claude/settings.json`, `.claude/hooks/`, `.claude/rules/`, `.claude/agents/`, `.claude/skills/`, `.claude/commands/`.
 - Exclusions volontaires (`.gitignore`): `node_modules/`, `antigravity-*`, `.DS_Store`, fichiers locaux `.env*` sauf `.env.example`, répertoire runtime `skills/skill-creator/`.
@@ -1193,7 +1190,7 @@ Le fichier orchestre six choses:
 3. `agent`: definitions des sous-agents (modele + reasoning effort + prompt + outils autorises). Tous les modeles passent par variables d'environnement (`OPENCODE_MODEL_*`, `OPENCODE_REASONING_*`).
 4. `command`: mappe `/<name>` -> template + sous-agent + `subtask`; **21** entrees epinglees.
 5. `mcp`: six serveurs — `code-memory` actif; `context7`, `blender`, `wallaby`, `Figma`, `smartbear-swagger` desactives par defaut. Perms `code-memory_*` pre-allowlistees pour chaque sous-agent.
-6. `plugin`: plugins npm + locaux — `opencode-skill-creator` (npm) plus huit fichiers locaux (`kpi`, `notification`, `mistral-affinity`, `llm-metrics`, `secret-file-guard`, `tool-budget`, `autonomy`, `domain-rules`).
+6. `plugin`: plugins npm + locaux — `opencode-skill-creator` (npm) plus six fichiers locaux (`kpi`, `mistral-affinity`, `secret-file-guard`, `tool-budget`, `autonomy`, `domain-rules`).
 
 `dcp.jsonc` est le stub de config du plugin externe optionnel Dynamic Context Pruning.
 
@@ -1348,17 +1345,15 @@ Deux fichiers d'instructions distincts: le **`CLAUDE.md` racine** (guidelines co
 
 ### Plugins & hooks
 
-Tous les plugins TypeScript utilisent `@opencode-ai/plugin@1.4.6`. OpenCode auto-charge chaque fichier `.ts`/`.js` de `plugins/`; le tableau `plugin` de `opencode.jsonc` déclare le plugin npm et huit fichiers locaux : `kpi`, `notification`, `mistral-affinity`, `llm-metrics`, `secret-file-guard`, `tool-budget`, `autonomy` et `domain-rules`.
+Tous les plugins TypeScript utilisent `@opencode-ai/plugin@1.4.6`. OpenCode auto-charge chaque fichier `.ts`/`.js` de `plugins/`; le tableau `plugin` de `opencode.jsonc` déclare le plugin npm et six fichiers locaux : `kpi`, `mistral-affinity`, `secret-file-guard`, `tool-budget`, `autonomy` et `domain-rules`.
 
 - `plugins/secret-file-guard.ts` — bloque l'acces `read`/`bash` aux `.env` porteurs de secret; `.env.example`/`.sample`/`.template` restent lisibles.
-- `plugins/notification.ts` — notifications desktop sur fin de session et evenements question/permission; push Bark/iPhone optionnel.
 - `plugins/mistral-affinity.js` — header `x-affinity` stable pour l'affinite de cache Mistral.
 - `plugins/tool-budget.ts` — pousse la verification plutot que l'exploration (ne bloque jamais).
 - `plugins/code-memory.ts` + `plugins/code-memory-lib/` — nudges auto-retrieve / auto-learn CodeMemory (no-op sans CLI).
-- `plugins/llm-metrics.ts` + `plugins/llm-metrics-lib/` — moniteur temps reel du comportement LLM (tokens, TTFT, duree, cout, modele, finish reason, tok/s) en NDJSONL dans `~/data/llm-metrics.jsonl`, coeur pur partage (110 tests). Local uniquement, aucun egress. Voir [`LLM_METRICS.md`](../LLM_METRICS.md).
 - `plugins/kdco-primitives/` + `plugins/lib/` — utilities partages.
 - `opencode-skill-creator` _(npm externe)_ — scaffolding et benchmark de skills.
-- `plugins/kpi.ts` — côté OpenCode du journal KPI, distinct de `llm-metrics`.
+- `plugins/kpi.ts` — côté OpenCode du journal KPI.
 - `plugins/autonomy.ts` — côté OpenCode du mode autonome. Voir [Mode autonome](#autonomy-fr).
 - `plugins/domain-rules.ts` — éteint tant que `.harness-local/domain-rules.json` ne l'active pas.
 - _Non charges:_ `plugins/ecc-hooks.ts.disabled`, `plugins/worktree.disabled`, `plugins/figma-rag.md`, `tui-plugins/caveman.tsx.disabled`.
@@ -1379,7 +1374,6 @@ Outils OpenCode reutilisables exposes via `tools/index.ts`:
 
 ### TUI plugins
 
-- `tui-plugins/llm-metrics.tsx` — sidebar SolidJS (slot `sidebar_content`) affichant les metriques LLM par session en temps reel; agrege tout le sous-arbre des sous-agents. Voir [`LLM_METRICS.md`](../LLM_METRICS.md).
 - `tui-plugins/panda-banner.tsx` — banniere SolidJS affichant un en-tete panda en art ASCII/blocs.
 - `tui-plugins/autonomy-status.tsx` — capsule de la barre latérale pour le mode autonome, enregistrée dans `tui.json`. Le comportement est dans [Mode autonome](#autonomy-fr).
 
@@ -1437,7 +1431,7 @@ Le parcours des deux variantes est [Comment une demande avance](#parcours-fr). L
 1. Demarrage: OpenCode charge `opencode.jsonc` -> 6 instructions globales -> auto-charge chaque plugin de `plugins/` plus les plugins TUI enregistres dans `tui.json`. Les skills se chargent selon leur description.
 2. Dev: `conductor` execute — il n'a pas le droit d'ecrire; il dispatche des Task vers les specialistes. `secret-file-guard` bloque l'acces `.env`; `tool-budget` pousse la verification.
 3. Workflow: routage via Task (impose par permissions); `/plan`, `/tdd`, `/security`, etc. forcent explicitement le meme routage. Brief contract, question protocol et verification gate encadrent chaque passage.
-4. Idle/completion: `llm-metrics` persiste les metriques par appel; `notification` envoie les alertes.
+4. Idle : le plugin `autonomy` lance le stop gate et envoie la notification d'inactivité.
 
 <a id="autonomy-fr"></a>
 

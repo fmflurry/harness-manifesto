@@ -2,6 +2,10 @@
 
 Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cursor-plugin/config.json` and is copied into `.cursor-plugin/plugin.json` by `node scripts/build-cursor-plugin.mjs`.
 
+## [0.4.44] - 2026-11-10
+
+- The OpenCode `notification` and `llm-metrics` plugins are removed, with the llm-metrics TUI sidebar, dashboard script and `LLM_METRICS.md`. A reinstall moves those files from an existing install into `.settings-opencode-retired/<stamp>/`, outside plugin discovery, instead of leaving them loaded.
+
 ## [0.4.43] - 2026-11-09
 
 - New `agent-harness prune-branches [--confirmed]` deletes local branches other than `backup/*` whose tip is already in `origin/<base>`, judged against the sha origin reports at run time (`git ls-remote`), so a rewritten local ref proves nothing, and that no goal file or registry entry claims. It keeps the base and current branch, branches checked out in a worktree, symbolic refs, and branches still at the tip of `origin/<base>`. It never touches remotes and only lists what it would do without `--confirmed`. The git guard allows exactly that shape.
