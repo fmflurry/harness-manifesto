@@ -112,10 +112,29 @@ Shared on both variants and all three hosts:
 
 Mêmes rails sur OpenCode, Claude Code et Cursor. Conductor délègue. Monolith écrit dans la session principale. Le schéma et la [page HTML](docs/harness/request-lifecycle.html) suivent la demande : routage ou écriture, porte de vérification, revue, PR, ou escalade vers vous. Le vocabulaire visuel est adapté de `/statechart` de @poteto dans backnotprop/pstack (MIT, Lauren Tan).
 
+<a id="config-machine"></a>
+
+## The harness as a state machine
+
+<p align="center">
+  <a href="docs/harness/harness-config.html"><img src="docs/harness/harness-config.png" alt="The harness as a state machine: one session, two runtimes reading the same state files, with gates that block, steer, or loop." width="100%" /></a>
+</p>
+
+[Open the statechart](docs/harness/harness-config.html). Visual vocabulary adapted from @poteto's /statechart in backnotprop/pstack (MIT · Lauren Tan).
+
+The chart follows a Monolith install. Control flow lives in the gates, not in the prompt. On OpenCode the secret guard, the git guard, and the tool budget are plugins. On Claude Code the git guard and the tool budget are hooks, and the secret guard is the `permissions.deny` list in `.claude/settings.json`, which covers Write and Edit only. The subagent allow-list is the `permission.task` block in `opencode.jsonc`. Autonomy state lives in `.claude/state/`. A hard gate denies and the model reroutes. A soft gate only steers. Autonomous mode adds the goal lifecycle: one worktree, one branch, one goal file, and a stop gate that blocks until the PR merges or the run escalates. The last panel lists three places where the config holds together in theory and slips in practice.
+
+<a id="machine-fr"></a>
+
+### Le harness comme machine à états
+
+Le schéma suit une installation Monolith. Avec la [page HTML](docs/harness/harness-config.html), il suit une session entière : démarrage, appel d'outil, arrêt, puis le cycle d'un objectif en mode autonome. Les gardes décident. Un garde dur refuse et le modèle change de route. Un garde souple ne fait qu'aiguiller. Le vocabulaire visuel est adapté de `/statechart` de @poteto dans backnotprop/pstack (MIT, Lauren Tan).
+
 ## On this page
 
 - [Variants](#variants) · [Choisir une variante](#variantes-fr)
 - [How a request moves](#request-flow) · [Comment une demande avance](#parcours-fr)
+- [The harness as a state machine](#config-machine) · [Le harness comme machine à états](#machine-fr)
 - [Public install](#public-install)
 - [Measure the variants](#measure) · [Mesurer les variantes](#mesurer-fr)
 - [What's inside](#whats-inside)
