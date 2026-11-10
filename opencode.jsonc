@@ -796,14 +796,8 @@
       },
     },
   },
-  "plugin": [
+  "plugins": [
     "opencode-skill-creator",
-    "./plugins/kpi.ts",
-    "./plugins/mistral-affinity.js",
-    "./plugins/secret-file-guard.ts",
-    "./plugins/tool-budget.ts",
-    "./plugins/autonomy.ts",
-    "./plugins/domain-rules.ts",
   ],
   "provider": {
     "llama.cpp": {

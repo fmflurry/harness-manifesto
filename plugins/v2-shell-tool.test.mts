@@ -1,51 +1,16 @@
 // OpenCode 2 renamed the shell tool from `bash` to `shell`. Every guard that inspects shell
-// commands must fire for both names, in the V1 plugins and in their V2 ports.
+// commands must fire for both names.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { isShellTool } from "./lib/tool-names.ts";
-import SecretFileGuardV1 from "./secret-file-guard.ts";
 import secretFileGuard from "./secret-file-guard/index.ts";
 import autonomy from "./autonomy/index.ts";
 import codeMemory from "./code-memory/index.ts";
 import toolBudget from "./tool-budget/index.ts";
-
-type Hook = (event: Record<string, unknown>) => unknown;
-
-// The slice of the V2 plugin context these plugins use. Each hook registration is kept by name.
-const fakeContext = (directory: string) => {
-  const hooks = new Map<string, Hook[]>();
-  const add = (name: string, hook: Hook) => {
-    hooks.set(name, [...(hooks.get(name) ?? []), hook]);
-    return Promise.resolve({ dispose: () => Promise.resolve() });
-  };
-  const ctx = {
-    location: { directory, project: { id: "p", directory, canonical: directory } },
-    app: { version: "2.2.7" },
-    tool: {
-      hook: (name: string, hook: Hook) => add(`tool.${name}`, hook),
-      transform: () => Promise.resolve({ dispose: () => Promise.resolve() }),
-    },
-    session: {
-      hook: (name: string, hook: Hook) => add(`session.${name}`, hook),
-      get: () => Promise.resolve({ parentID: undefined }),
-      list: () => Promise.resolve({ data: [] }),
-      prompt: () => Promise.resolve({}),
-    },
-    shell: { hook: (name: string, hook: Hook) => add(`shell.${name}`, hook) },
-    event: {
-      subscribe: () => ({
-        async *[Symbol.asyncIterator]() {},
-      }),
-    },
-  };
-  const run = async (name: string, event: Record<string, unknown>) => {
-    for (const hook of hooks.get(name) ?? []) await hook(event);
-  };
-  return { ctx, run };
-};
+import { fakeContext } from "./v2-context.test.helper.mts";
 
 const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), "v2-shell-"));
 
@@ -56,14 +21,6 @@ test("the shell tool is `shell` in OpenCode 2 and `bash` in OpenCode 1", () => {
   for (const tool of ["read", "grep", "question", "", undefined]) {
     assert.equal(isShellTool(tool), false);
   }
-});
-
-test("the V1 secret file guard blocks a .env read through the shell tool", async () => {
-  const hooks = await SecretFileGuardV1({ directory: scratch() } as never);
-  await assert.rejects(
-    hooks["tool.execute.before"]({ tool: "shell", sessionID: "s", callID: "c" }, { args: { command: "cat .env" } }),
-    /secret-file-guard/,
-  );
 });
 
 test("the V2 secret file guard blocks a .env read through the shell tool", async () => {

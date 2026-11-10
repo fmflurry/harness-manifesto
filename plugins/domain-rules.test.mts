@@ -5,8 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import type { PluginInput } from "@opencode-ai/plugin";
-import { DomainRulesPlugin } from "./domain-rules.ts";
+import domainRules from "./domain-rules/index.ts";
+import { fakeContext } from "./v2-context.test.helper.mts";
 import { decideDomainRules, executeDomainRules } from "./lib/domain-rules.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -120,16 +120,17 @@ test("domain-rules runs when the hook directory is a symlink", () => {
 test("the OpenCode plugin blocks edits only when the project script is enabled", async () => {
   const root = project();
   try {
-    const plugin = await DomainRulesPlugin({ directory: root } as PluginInput);
-    const before = plugin["tool.execute.before"];
-    await before({ tool: "edit" }, { args: { filePath: "src/app.ts" } });
+    const { ctx, run } = fakeContext(root);
+    await domainRules.setup(ctx as never);
+    const before = (tool: string, input: Record<string, unknown>) => run("tool.execute.before", { tool, input });
+    await before("edit", { filePath: "src/app.ts" });
     assert.equal(fs.existsSync(path.join(root, "ran.txt")), false);
 
     fs.mkdirSync(path.join(root, ".harness-local"));
     fs.writeFileSync(path.join(root, ".harness-local/domain-rules.json"), '{"enabled": true}\n');
-    await before({ tool: "bash" }, { args: { command: "true" } });
+    await before("shell", { command: "true" });
     assert.equal(fs.existsSync(path.join(root, "ran.txt")), false);
-    await assert.rejects(before({ tool: "write" }, { args: {} }), /domain-rules/);
+    await assert.rejects(before("write", {}), /domain-rules/);
     assert.equal(fs.readFileSync(path.join(root, "ran.txt"), "utf8"), "ran");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

@@ -566,7 +566,7 @@ Les hooks et les plugins OpenCode code-memory ne font rien quand la décision es
 - Skills : `skills/*/SKILL.md` (plus les docs auxiliaires) — **ensemble canonique, partagé avec Claude Code via** `sync-skills.sh`.
 - Prompts d'agents : `prompts/agents/*.txt` (26 fichiers).
 - Commandes slash : `commands/*.md` (53 modèles ; 37 épinglés dans `opencode.jsonc`, recomptés le 2026-11-06).
-- Plugins OpenCode : `plugins/*.{ts,js}` + `plugins/kdco-primitives/` + `plugins/code-memory-lib/` + `plugins/lib/`.
+- Plugins OpenCode : `plugins/<name>/index.ts` + `plugins/code-memory-lib/` + `plugins/lib/` (with `plugins/lib/kdco-primitives/`).
 - Plugins TUI : `tui-plugins/*.tsx` (enregistrés dans `tui.json` ; `autonomy-status.tsx` est le panneau latéral d'autonomie).
 - Outils custom : `tools/*.ts`.
 - Notes de mode : `contexts/*.md`.
@@ -595,7 +595,7 @@ Six sujets câblés dans un fichier :
 3. `agent` : 26 définitions (modèle + effort de raisonnement + prompt + allowlist d'outils). Tous les modèles passent par l'env (`OPENCODE_MODEL_*`, `OPENCODE_REASONING_*`) — voir [Installation publique](#public-install).
 4. `command` : mappe `/<name>` -> template + sous-agent + `subtask` ; **21** entrées sont épinglées ici.
 5. `mcp` : six serveurs — `code-memory` activé ; `context7`, `blender`, `wallaby`, `Figma`, `smartbear-swagger` désactivés par défaut. Les perms `code-memory_*` sont pré-autorisées pour chaque sous-agent.
-6. `plugin` : plugins npm + locaux — `opencode-skill-creator` (npm) plus six fichiers locaux (`kpi`, `mistral-affinity`, `secret-file-guard`, `tool-budget`, `autonomy`, `domain-rules`), qu'OpenCode charge aussi automatiquement depuis le répertoire des plugins.
+6. `plugins` : le plugin npm `opencode-skill-creator`. OpenCode 2 charge seul les dossiers de plugins locaux sous `plugins/`.
 
 `dcp.jsonc` est le stub de config du plugin externe optionnel Dynamic Context Pruning.
 
@@ -678,7 +678,7 @@ Quand le serveur MCP `code-memory` est connecté et que CodeMemory est allumé, 
 La délégation est imposée sur **deux couches**, pour que le même comportement tienne que le modèle principal soit Claude, GPT, DeepSeek, ou n'importe quel runner open-weight qui ignore les indications en prose :
 
 1. **Permissions** — `conductor` a `tools.write: false`, `tools.edit: false`, et `permission.edit/write: deny` dans `opencode.jsonc`. L'allowlist Task énumère chaque spécialiste légal ; `*: deny` bloque tout le reste. L'orchestrateur n'a littéralement aucun outil de mutation de fichier.
-2. **Plugins de garde + prompt chargé devant** — `plugins/secret-file-guard.ts` avorte tout accès `read`/`bash` à un fichier `.env` porteur de secret ; `plugins/tool-budget.ts` pousse la vérification plutôt que l'exploration (il ne bloque jamais un appel). `prompts/agents/conductor.txt` place les règles dures dans les premières lignes, la table de routage en second, et six exemples few-shot travaillés montrant des appels User → `task` avec des contrastes explicites de mauvais chemin ; `instructions/subagent-routing.md` impose une porte Task-first avant inspection directe.
+2. **Plugins de garde + prompt chargé devant** — `plugins/secret-file-guard/index.ts` avorte tout accès `read`/`bash` à un fichier `.env` porteur de secret ; `plugins/tool-budget/index.ts` pousse la vérification plutôt que l'exploration (il ne bloque jamais un appel). `prompts/agents/conductor.txt` place les règles dures dans les premières lignes, la table de routage en second, et six exemples few-shot travaillés montrant des appels User → `task` avec des contrastes explicites de mauvais chemin ; `instructions/subagent-routing.md` impose une porte Task-first avant inspection directe.
 
 Utilisez ces chemins selon le contrôle voulu :
 
@@ -838,17 +838,17 @@ Deux fichiers d'instructions de premier niveau, des rôles distincts :
 
 ### Plugins et hooks
 
-Tous les plugins TypeScript utilisent `@opencode-ai/plugin@1.4.6`. OpenCode charge automatiquement chaque fichier `.ts`/`.js` de `plugins/` ; le tableau `plugin` de `opencode.jsonc` déclare le plugin npm et six fichiers locaux : `kpi`, `mistral-affinity`, `secret-file-guard`, `tool-budget`, `autonomy` et `domain-rules`.
+Les plugins sont des dossiers OpenCode 2 construits avec `@opencode/plugin@2.2.7` (`plugins/<nom>/index.ts`, `Plugin.define`). OpenCode charge chaque dossier de `plugins/` ; `plugins` dans `opencode.jsonc` ne nomme que le plugin npm `opencode-skill-creator`.
 
-- `plugins/secret-file-guard.ts` — bloque dur l'accès `read`/`bash` aux fichiers `.env` porteurs de secret ; `.env.example`/`.sample`/`.template` restent lisibles.
-- `plugins/mistral-affinity.js` — attache un en-tête `x-affinity` stable aux appels fournisseur Mistral / compatibles Mistral, pour l'affinité de cache.
-- `plugins/tool-budget.ts` — pousse le modèle vers la vérification plutôt que l'exploration via le prompt système (ne bloque jamais un appel d'outil).
-- `plugins/code-memory.ts` + `plugins/code-memory-lib/` — nudges auto-retrieve / auto-learn de CodeMemory (no-op quand la CLI `code-memory` est absente).
-- `plugins/kdco-primitives/` + `plugins/lib/` — utilitaires partagés (mutex, shell, détection de terminal, résolveur de project-id, types).
+- `plugins/secret-file-guard/index.ts` — bloque dur l'accès `read`/`bash` aux fichiers `.env` porteurs de secret ; `.env.example`/`.sample`/`.template` restent lisibles.
+- `plugins/mistral-affinity/index.ts` — attache un en-tête `x-affinity` stable aux appels fournisseur Mistral / compatibles Mistral, pour l'affinité de cache.
+- `plugins/tool-budget/index.ts` — pousse le modèle vers la vérification plutôt que l'exploration via le prompt système (ne bloque jamais un appel d'outil).
+- `plugins/code-memory/index.ts` + `plugins/code-memory-lib/` — nudges auto-retrieve / auto-learn de CodeMemory (no-op quand la CLI `code-memory` est absente).
+- `plugins/lib/` (with `plugins/lib/kdco-primitives/`) — utilitaires partagés (mutex, shell, détection de terminal, résolveur de project-id, types).
 - `opencode-skill-creator` _(npm externe, déclaré dans `opencode.jsonc › plugin`)_ — échafaudage et benchmark de skills.
-- `plugins/kpi.ts` — côté OpenCode du journal KPI. Enregistre les bornes de session, les noms de skills, les types de sous-agents et les résultats d'outils.
-- `plugins/autonomy.ts` — côté OpenCode du mode autonome. Voir [Mode autonome](#autonomy-en).
-- `plugins/domain-rules.ts` — éteint tant que `.harness-local/domain-rules.json` ne l'active pas. Tourne avant write, edit, patch et multiedit.
+- `plugins/kpi/index.ts` — côté OpenCode du journal KPI. Enregistre les bornes de session, les noms de skills, les types de sous-agents et les résultats d'outils.
+- `plugins/autonomy/index.ts` — côté OpenCode du mode autonome. Voir [Mode autonome](#autonomy-en).
+- `plugins/domain-rules/index.ts` — éteint tant que `.harness-local/domain-rules.json` ne l'active pas. Tourne avant write, edit, patch et multiedit.
 - _Non chargés :_ `plugins/ecc-hooks.ts.disabled`, `plugins/worktree.disabled`, `plugins/figma-rag.md` et `tui-plugins/caveman.tsx.disabled` sont livrés désactivés et sautés par le chargeur.
 
 **Hooks côté Claude** (`.claude/hooks/`, 21 scripts, recomptés le 2026-11-06) : `notification.sh`, `pre-tool-use.sh`, `prefer-code-memory.sh`, `rtk-rewrite.sh`, `stop.sh`, `subagent-stop.sh`, `tool-budget.sh`, `autonomy-ask-guard.sh`, `autonomy-context.sh`, `autonomy-git-guard.sh`, `cache-invalidation.sh`, `cloud-session-bootstrap.sh`, `codememory-mode.sh`, `commit-provenance.sh`, `domain-rules.sh`, `goal-state.sh`, `kpi-emit.sh`, `memory-lint.sh`, `orca-notify.sh`, `pr-visual-report.sh`, `ship-stop-gate.sh`.
@@ -956,7 +956,7 @@ dans `~/.local/bin/agent-harness` quand Claude Code ou OpenCode est une cible d'
   `.claude/hooks/ship-stop-gate.sh`, branché depuis `.claude/settings.json`.
 - **OpenCode.** `/ship` et `/autonomous` sont épinglés dans `opencode.jsonc` (`command.ship`, `command.autonomous`),
   tous deux sur `conductor`, templates `commands/ship.md` et `commands/autonomous.md`. La règle de démarrage est
-  `instructions/autonomy.md`. `plugins/autonomy.ts` bloque l'outil `question`, injecte le contexte d'autonomie, refuse
+  `instructions/autonomy.md`. `plugins/autonomy/index.ts` bloque l'outil `question`, injecte le contexte d'autonomie, refuse
   les commandes git interdites, et relance la session racine quand le stop gate bloque. La bascule de la barre latérale est
   `tui-plugins/autonomy-status.tsx` (enregistrée dans `tui.json`) : palette de commandes « Toggle autonomous mode »,
   `/autonomy-toggle`, ou `<leader>u`.
@@ -1001,7 +1001,7 @@ un plafond de sécurité `max_fix_iterations` à 10. Une entrée vide sort 2. Le
   passent pour la pointe locale courante, le blocage dit de finir la revue locale. Après les deux, sans PR, il
   dit de pousser et d'ouvrir la PR. Tant que le goal est actif et que la PR n'est pas fusionnée, le hook bloque un arrêt anticipé.
   Si GitHub est illisible, le hook sort 0 et ne compte pas l'arrêt. OpenCode n'a pas de hook Stop.
-  `plugins/autonomy.ts` lance le même script sur `session.idle` d'une session racine, transmet les sessions enfants en cours,
+  `plugins/autonomy/index.ts` lance le même script sur `session.idle` d'une session racine, transmet les sessions enfants en cours,
   et relance avec la raison (`instructions/autonomy.md`). Conductor et Monolith utilisent ce hook.
 
 **Quand ça escalade.** `skills/ship/SKILL.md` (Human-only) s'arrête pour des identifiants manquants, des limites de compte ou
@@ -1045,7 +1045,7 @@ agent-harness prune-branches [--confirmed]  # branches locales hors backup déj�
 Le skill `ship` (`skills/ship/`) tient les étapes, et le skill `autonomous` pilote la bascule. Les règles de comportement sont
 dans `.claude/rules/common/autonomy.md` (Claude Code) et `instructions/autonomy.md` (OpenCode).
 
-**OpenCode.** `plugins/autonomy.ts` impose le flag : il bloque l'outil `question`, injecte le contexte d'autonomie, refuse les commandes git interdites, et relance la session quand le stop gate bloque. L'état de la bascule (`.claude/state/autonomy.on`, `goal.json`) est partagé avec Claude Code, donc basculer dans l'un des harnesses bascule les deux. Basculez depuis la palette de commandes (« Toggle autonomous mode »), avec `/autonomy-toggle`, ou avec `<leader>u`.
+**OpenCode.** `plugins/autonomy/index.ts` impose le flag : il bloque l'outil `question`, injecte le contexte d'autonomie, refuse les commandes git interdites, et relance la session quand le stop gate bloque. L'état de la bascule (`.claude/state/autonomy.on`, `goal.json`) est partagé avec Claude Code, donc basculer dans l'un des harnesses bascule les deux. Basculez depuis la palette de commandes (« Toggle autonomous mode »), avec `/autonomy-toggle`, ou avec `<leader>u`.
 
 **Panneau de statut.** `tui-plugins/autonomy-status.tsx` (enregistré dans `tui.json`) montre une capsule ` ● AUTONOMOUS ` ou ` ○ manual ` dans la barre latérale de session, puis le goal avec `PR #n`, `fix i/max`, et le statut (`escalated: <reason>` ; omis tant qu'il est actif). Il se rafraîchit toutes les 3 s et lève un toast à chaque transition.
 
@@ -1099,7 +1099,7 @@ rail de fusion. Aucun status GitHub n'est créé, et `ship-merge` ne fait pas co
 - Ce sont des garde-fous côté client, pas une frontière de sécurité. Un agent avec accès shell peut appeler `gh` directement.
 - La protection de branche sur la branche de base (reviews requises, checks requis, push restreints) est la vraie application. Posez-la sur l'hébergeur.
 - Une PR qui correspond à `protectedPaths` exige une fusion humaine (`--confirmed`), quand cette clé est posée. Sans la clé, le mode autonome fusionne toute PR qui passe la garde.
-- OpenCode n'enregistre pas les hooks Claude Code. `plugins/autonomy.ts` lance `autonomy-git-guard.sh` avant bash et `ship-stop-gate.sh` quand une session racine passe idle (`instructions/autonomy.md`).
+- OpenCode n'enregistre pas les hooks Claude Code. `plugins/autonomy/index.ts` lance `autonomy-git-guard.sh` avant chaque appel shell et `ship-stop-gate.sh` quand une session racine passe idle (`instructions/autonomy.md`).
 
 **Parité.** Le mod de statut d'autonomie (`.claude/mods/`, ligne de statut et bandeau) est réservé à Claude Code. OpenCode n'a pas d'équivalent.
 
@@ -1169,7 +1169,7 @@ Les hooks et les plugins OpenCode code-memory ne font rien quand la décision es
 - Skills: `skills/*/SKILL.md` (+ ressources auxiliaires) — **ensemble canonical, partage avec Claude Code via `sync-skills.sh`**.
 - Prompts agents: `prompts/agents/*.txt`.
 - Commandes slash: `commands/*.md`.
-- Plugins OpenCode: `plugins/*.{ts,js}` (+ `plugins/kdco-primitives/` + `plugins/code-memory-lib/` + `plugins/lib/`).
+- Plugins OpenCode: `plugins/<name>/index.ts` (+ `plugins/code-memory-lib/` + `plugins/lib/`, avec `plugins/lib/kdco-primitives/`).
 - Plugins TUI : `tui-plugins/*.tsx` (enregistrés dans `tui.json` ; `autonomy-status.tsx` est le panneau latéral d'autonomie).
 - Outils custom: `tools/*.ts`.
 - Contextes (memos de mode): `contexts/*.md`.
@@ -1190,7 +1190,7 @@ Le fichier orchestre six choses:
 3. `agent`: definitions des sous-agents (modele + reasoning effort + prompt + outils autorises). Tous les modeles passent par variables d'environnement (`OPENCODE_MODEL_*`, `OPENCODE_REASONING_*`).
 4. `command`: mappe `/<name>` -> template + sous-agent + `subtask`; **21** entrees epinglees.
 5. `mcp`: six serveurs — `code-memory` actif; `context7`, `blender`, `wallaby`, `Figma`, `smartbear-swagger` desactives par defaut. Perms `code-memory_*` pre-allowlistees pour chaque sous-agent.
-6. `plugin`: plugins npm + locaux — `opencode-skill-creator` (npm) plus six fichiers locaux (`kpi`, `mistral-affinity`, `secret-file-guard`, `tool-budget`, `autonomy`, `domain-rules`).
+6. `plugins` : le plugin npm `opencode-skill-creator`. OpenCode 2 charge seul les dossiers de plugins locaux sous `plugins/`.
 
 `dcp.jsonc` est le stub de config du plugin externe optionnel Dynamic Context Pruning.
 
@@ -1255,7 +1255,7 @@ Cette section décrit **Conductor**. Sur Monolith l'agent principal peut écrire
 La delegation est imposee sur **deux couches**, donc le comportement reste identique que le primary soit Claude, GPT, DeepSeek ou un modele open-weight qui ignore les instructions en prose:
 
 1. **Permissions** — `conductor` a `tools.write: false`, `tools.edit: false`, et `permission.edit/write: deny` dans `opencode.jsonc`. L'allowlist Task enumere chaque specialiste legal; `*: deny` bloque le reste. L'orchestrateur n'a litteralement aucun outil pour modifier des fichiers.
-2. **Guard plugins + prompt front-loaded** — `plugins/secret-file-guard.ts` avorte tout acces `read`/`bash` a un fichier `.env` porteur de secret; `plugins/tool-budget.ts` pousse la verification plutot que l'exploration (ne bloque jamais un appel). `prompts/agents/conductor.txt` place les regles dures dans les premieres lignes, la table de routage en second, et six exemples few-shot User -> `task` avec contre-exemples explicites; `instructions/subagent-routing.md` impose un Task-first gate avant inspection directe.
+2. **Guard plugins + prompt front-loaded** — `plugins/secret-file-guard/index.ts` avorte tout acces `read`/`bash` a un fichier `.env` porteur de secret; `plugins/tool-budget/index.ts` pousse la verification plutot que l'exploration (ne bloque jamais un appel). `prompts/agents/conductor.txt` place les regles dures dans les premieres lignes, la table de routage en second, et six exemples few-shot User -> `task` avec contre-exemples explicites; `instructions/subagent-routing.md` impose un Task-first gate avant inspection directe.
 
 Chemins possibles: requete normale (routage via Task), mention `@agent`, commande slash (`/plan`, `/tdd`, `/security`).
 
@@ -1345,17 +1345,17 @@ Deux fichiers d'instructions distincts: le **`CLAUDE.md` racine** (guidelines co
 
 ### Plugins & hooks
 
-Tous les plugins TypeScript utilisent `@opencode-ai/plugin@1.4.6`. OpenCode auto-charge chaque fichier `.ts`/`.js` de `plugins/`; le tableau `plugin` de `opencode.jsonc` déclare le plugin npm et six fichiers locaux : `kpi`, `mistral-affinity`, `secret-file-guard`, `tool-budget`, `autonomy` et `domain-rules`.
+Les plugins sont des dossiers OpenCode 2 construits avec `@opencode/plugin@2.2.7` (`plugins/<nom>/index.ts`, `Plugin.define`). OpenCode charge chaque dossier de `plugins/` ; `plugins` dans `opencode.jsonc` ne nomme que le plugin npm `opencode-skill-creator`.
 
-- `plugins/secret-file-guard.ts` — bloque l'acces `read`/`bash` aux `.env` porteurs de secret; `.env.example`/`.sample`/`.template` restent lisibles.
-- `plugins/mistral-affinity.js` — header `x-affinity` stable pour l'affinite de cache Mistral.
-- `plugins/tool-budget.ts` — pousse la verification plutot que l'exploration (ne bloque jamais).
-- `plugins/code-memory.ts` + `plugins/code-memory-lib/` — nudges auto-retrieve / auto-learn CodeMemory (no-op sans CLI).
-- `plugins/kdco-primitives/` + `plugins/lib/` — utilities partages.
+- `plugins/secret-file-guard/index.ts` — bloque l'acces `read`/`bash` aux `.env` porteurs de secret; `.env.example`/`.sample`/`.template` restent lisibles.
+- `plugins/mistral-affinity/index.ts` — header `x-affinity` stable pour l'affinite de cache Mistral.
+- `plugins/tool-budget/index.ts` — pousse la verification plutot que l'exploration (ne bloque jamais).
+- `plugins/code-memory/index.ts` + `plugins/code-memory-lib/` — nudges auto-retrieve / auto-learn CodeMemory (no-op sans CLI).
+- `plugins/lib/` (with `plugins/lib/kdco-primitives/`) — utilities partages.
 - `opencode-skill-creator` _(npm externe)_ — scaffolding et benchmark de skills.
-- `plugins/kpi.ts` — côté OpenCode du journal KPI.
-- `plugins/autonomy.ts` — côté OpenCode du mode autonome. Voir [Mode autonome](#autonomy-fr).
-- `plugins/domain-rules.ts` — éteint tant que `.harness-local/domain-rules.json` ne l'active pas.
+- `plugins/kpi/index.ts` — côté OpenCode du journal KPI.
+- `plugins/autonomy/index.ts` — côté OpenCode du mode autonome. Voir [Mode autonome](#autonomy-fr).
+- `plugins/domain-rules/index.ts` — éteint tant que `.harness-local/domain-rules.json` ne l'active pas.
 - _Non charges:_ `plugins/ecc-hooks.ts.disabled`, `plugins/worktree.disabled`, `plugins/figma-rag.md`, `tui-plugins/caveman.tsx.disabled`.
 
 **Hooks Claude** (`.claude/hooks/`, 21 scripts, recomptés le 2026-11-06) : `notification.sh`, `pre-tool-use.sh`, `prefer-code-memory.sh`, `rtk-rewrite.sh`, `stop.sh`, `subagent-stop.sh`, `tool-budget.sh`, `autonomy-ask-guard.sh`, `autonomy-context.sh`, `autonomy-git-guard.sh`, `cache-invalidation.sh`, `cloud-session-bootstrap.sh`, `codememory-mode.sh`, `commit-provenance.sh`, `domain-rules.sh`, `goal-state.sh`, `kpi-emit.sh`, `memory-lint.sh`, `orca-notify.sh`, `pr-visual-report.sh`, `ship-stop-gate.sh`.
@@ -1444,7 +1444,7 @@ Le run est une boucle, tenue par `skills/ship/SKILL.md` : implémenter, vérifie
 **Comment le lancer.** Le texte du goal est l'argument de `/ship`. Le flag est aussi `agent-harness autonomy on|off|status` (`scripts/agent-harness/autonomy.sh`). `install.sh` installe ce wrapper dans `~/.local/bin/agent-harness` quand Claude Code ou OpenCode est une cible d'install. `install-cursor.sh` installe le même wrapper, qui pointe vers `~/.local/share/fmflurry-harness`.
 
 - **Claude Code.** Il n'y a pas de `.claude/commands/ship.md`. `/ship <goal>` est le skill `ship`, `skills/ship/SKILL.md`. `install.sh` lance `scripts/sync-skills.sh`, qui le copie vers `~/.claude/skills/ship`. `/autonomous on|off|status` est `skills/autonomous/SKILL.md` (`disable-model-invocation: true`, donc invoqué par l'utilisateur). La règle de comportement est `.claude/rules/common/autonomy.md`. Le hook Stop est `.claude/hooks/ship-stop-gate.sh`, branché depuis `.claude/settings.json`.
-- **OpenCode.** `/ship` et `/autonomous` sont épinglés dans `opencode.jsonc` (`command.ship`, `command.autonomous`), tous deux sur `conductor`, templates `commands/ship.md` et `commands/autonomous.md`. La règle chargée au démarrage est `instructions/autonomy.md`. `plugins/autonomy.ts` bloque l'outil `question`, injecte le contexte d'autonomie, refuse les commandes git interdites, et relance la session racine quand le stop gate bloque. La bascule de la barre latérale est `tui-plugins/autonomy-status.tsx` (enregistrée dans `tui.json`) : palette « Toggle autonomous mode », `/autonomy-toggle`, ou `<leader>u`.
+- **OpenCode.** `/ship` et `/autonomous` sont épinglés dans `opencode.jsonc` (`command.ship`, `command.autonomous`), tous deux sur `conductor`, templates `commands/ship.md` et `commands/autonomous.md`. La règle chargée au démarrage est `instructions/autonomy.md`. `plugins/autonomy/index.ts` bloque l'outil `question`, injecte le contexte d'autonomie, refuse les commandes git interdites, et relance la session racine quand le stop gate bloque. La bascule de la barre latérale est `tui-plugins/autonomy-status.tsx` (enregistrée dans `tui.json`) : palette « Toggle autonomous mode », `/autonomy-toggle`, ou `<leader>u`.
 - **Cursor.** `/ship <goal>` est `plugins/fmflurry-harness/commands/ship.md` (construit depuis `commands/ship.md` par `scripts/build-cursor-plugin.mjs`). Il charge `plugins/fmflurry-harness/skills/ship/SKILL.md`. `/autonomous` est `plugins/fmflurry-harness/commands/autonomous.md` et `plugins/fmflurry-harness/skills/autonomous/SKILL.md`. La règle toujours active est `plugins/fmflurry-harness/rules/autonomy.mdc`. L'entrée `stop` de `plugins/fmflurry-harness/hooks/hooks.json` lance `hooks/scripts/ship-stop-gate.sh`. Ce hook appelle `agent-harness` depuis le `PATH`. `install-cursor.sh` installe cette commande dans `~/.local/bin/agent-harness`.
 
 **Boucle de revue.** L'étape 6 de `skills/ship/SKILL.md` relit `git diff <base>...HEAD` avec `code-reviewer`, `security-reviewer`, et le cop du stack quand il s'applique (`angular-cop` ou `dotnet-cop` ; `database-reviewer` si le SQL a changé). L'agent confirme chaque finding contre le code. Seul un finding Important confirmé bloque. Nit et Pre-existing ne bloquent pas. Les tags viennent du `REVIEW.md` du dépôt quand il existe, sinon de Finding tags dans `.claude/agents/code-reviewer.md`. Chaque verdict est enregistré avec `agent-harness goal review code|security pass|fail`. Le garde de push (`.claude/hooks/autonomy-git-guard.sh`) refuse `git push` et `gh pr create` tant qu'un goal actif n'a pas de verdicts code et sécurité positifs pour le diff exact (un hash du diff contre `origin/<base>`, hors `docs/agent-reports/`) ; les pushes vers `backup/*` et le commit de rapport ne sont pas gardés. Une fois la PR ouverte, un commentaire de synthèse est publié (`skills/ship/references/review-format.md`). Ce commentaire est une trace d'audit. `ship-merge` ne le lit pas. Chaque correctif CI ou de commentaire ultérieur est relu localement avant son push.
@@ -1454,7 +1454,7 @@ Le run est une boucle, tenue par `skills/ship/SKILL.md` : implémenter, vérifie
 **Règle d'absence de progrès.** Deux contrôles portent ce nom. Ce n'est pas le même test.
 
 - `skills/ship/SKILL.md` (Stop conditions) traite une itération complète comme sans progrès quand le même finding Important et le même échec restent, ou quand le même blocage hors revue échoue de la même façon. Un nouvel échec, un nouveau finding, ou un check vert compte comme un progrès. L'agent lance alors `agent-harness goal escalate`. Pour les findings de revue, `goal bump` compare aussi une empreinte des findings entre deux tours.
-- `.claude/hooks/ship-stop-gate.sh` (copie Cursor : `plugins/fmflurry-harness/hooks/scripts/ship-stop-gate.sh`) compte un arrêt comme sans progrès seulement quand rien n'a bougé : la tête de la PR, la pointe de branche du worktree enregistré, `.reviews`, et `fix_iterations`. Cinq arrêts vides consécutifs escaladent avec `no progress after 5 stop blocks`. Un de ces changements remet `stop_blocks` à 0. Chaque arrêt compté incrémente `total_blocks`, et 30 blocs au total escaladent même si le dernier arrêt était un progrès. Les arrêts ne sont pas comptés pendant `agent-harness goal wait "<reason>" --ttl 30m` (24 h maximum), ni tant que l'entrée du hook, un pid vivant, un marqueur inflight, ou un processus de test ou de revue dans le worktree montre un travail en arrière-plan. Avant que les deux verdicts passent pour la pointe locale, le blocage dit de finir la revue locale. Après les deux verdicts, sans PR, il dit de pousser et d'ouvrir la PR. Tant que le goal est actif et que la PR n'est pas fusionnée, le hook bloque un arrêt anticipé. Si GitHub est illisible, le hook sort 0 et ne compte pas l'arrêt. OpenCode n'a pas de hook Stop. `plugins/autonomy.ts` lance le même script sur `session.idle` d'une session racine, transmet les sessions enfants en cours, et relance avec la raison (`instructions/autonomy.md`). Conductor et Monolith utilisent ce hook.
+- `.claude/hooks/ship-stop-gate.sh` (copie Cursor : `plugins/fmflurry-harness/hooks/scripts/ship-stop-gate.sh`) compte un arrêt comme sans progrès seulement quand rien n'a bougé : la tête de la PR, la pointe de branche du worktree enregistré, `.reviews`, et `fix_iterations`. Cinq arrêts vides consécutifs escaladent avec `no progress after 5 stop blocks`. Un de ces changements remet `stop_blocks` à 0. Chaque arrêt compté incrémente `total_blocks`, et 30 blocs au total escaladent même si le dernier arrêt était un progrès. Les arrêts ne sont pas comptés pendant `agent-harness goal wait "<reason>" --ttl 30m` (24 h maximum), ni tant que l'entrée du hook, un pid vivant, un marqueur inflight, ou un processus de test ou de revue dans le worktree montre un travail en arrière-plan. Avant que les deux verdicts passent pour la pointe locale, le blocage dit de finir la revue locale. Après les deux verdicts, sans PR, il dit de pousser et d'ouvrir la PR. Tant que le goal est actif et que la PR n'est pas fusionnée, le hook bloque un arrêt anticipé. Si GitHub est illisible, le hook sort 0 et ne compte pas l'arrêt. OpenCode n'a pas de hook Stop. `plugins/autonomy/index.ts` lance le même script sur `session.idle` d'une session racine, transmet les sessions enfants en cours, et relance avec la raison (`instructions/autonomy.md`). Conductor et Monolith utilisent ce hook.
 
 **Quand ça escalade.** `skills/ship/SKILL.md` (Human-only) s'arrête pour des identifiants manquants, des limites de compte ou de facturation, une panne externe, une décision produit que le dépôt ne peut pas trancher, ou une action de la liste interdite. Il s'arrête aussi sur la règle d'absence de progrès du skill, sur la sortie 3 de `goal bump`, et sur les plafonds du stop gate ci-dessus. Un finding gitleaks ou une exposition de secret arrête le run pour `security-reviewer` et une rotation. Un résultat `Wait or cancel` du contrôle des PR ouvertes escalade (`skills/open-pr-check/SKILL.md`). Le chemin bloqué conserve le worktree, la branche et le registre (`skills/ship/SKILL.md`, Blocked path).
 
@@ -1530,6 +1530,6 @@ Ensuite, la fusion est épinglée au SHA de la tête, puis `agent-harness teardo
 - Ce sont des garde-fous côté client, pas une frontière de sécurité. Un agent avec accès shell peut appeler `gh` directement.
 - La protection de branche sur la branche de base (reviews requises, checks requis, push restreints) est le vrai mécanisme d'application. À configurer sur l'hébergeur.
 - Une PR qui correspond à `protectedPaths` nécessite une fusion humaine (`--confirmed`), quand la clé est définie. Sans cette clé, le mode autonome fusionne toute PR qui passe les garde-fous.
-- OpenCode n'enregistre pas les hooks Claude Code. `plugins/autonomy.ts` lance `autonomy-git-guard.sh` avant bash et `ship-stop-gate.sh` quand une session racine passe idle (`instructions/autonomy.md`).
+- OpenCode n'enregistre pas les hooks Claude Code. `plugins/autonomy/index.ts` lance `autonomy-git-guard.sh` avant chaque appel shell et `ship-stop-gate.sh` quand une session racine passe idle (`instructions/autonomy.md`).
 
 **Parité.** Le mod de statut autonome (`.claude/mods/`, barre d'état et bandeau) est réservé à Claude Code. OpenCode n'a pas d'équivalent.

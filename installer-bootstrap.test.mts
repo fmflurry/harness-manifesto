@@ -59,6 +59,16 @@ const retiredOpencodePaths = [
   "tui-plugins/llm-metrics.tsx",
   "scripts/llm-metrics-dashboard.ts",
   "LLM_METRICS.md",
+  "plugins/autonomy.ts",
+  "plugins/code-memory.ts",
+  "plugins/commit-provenance.ts",
+  "plugins/domain-rules.ts",
+  "plugins/kpi.ts",
+  "plugins/mistral-affinity.js",
+  "plugins/secret-file-guard.ts",
+  "plugins/tool-budget.ts",
+  "plugins/ecc-hooks.ts",
+  "plugins/kdco-primitives",
 ] as const;
 const pwshAvailability = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", "exit 0"], {
   encoding: "utf8",
@@ -1693,7 +1703,8 @@ function assertProjectOverlay(projectDir: string, variant: "monolith" | "conduct
   assert.equal(readFileSync(join(projectDir, ".cursor/rules", rule), "utf8"), "project cursor rule\n");
   assert.equal(readFileSync(join(projectDir, ".cursor/.harness-variant"), "utf8").trim(), variant);
   assert.match(readFileSync(join(projectDir, ".claude/settings.json"), "utf8"), /bash \.\/\.claude\/hooks\/domain-rules\.sh/);
-  assert.match(readFileSync(join(projectDir, ".opencode/opencode.jsonc"), "utf8"), /\.\/plugins\/domain-rules\.ts/);
+  // OpenCode 2 loads every plugin folder on its own; the config does not list them.
+  assert.ok(existsSync(join(projectDir, ".opencode/plugins/domain-rules/index.ts")));
   assertRelativeLocalPaths(projectDir, variant);
   const ran = spawnSync("bash", [join(projectDir, ".claude/hooks/domain-rules.sh")], {
     cwd: projectDir,

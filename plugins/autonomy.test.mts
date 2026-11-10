@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { AutonomyPlugin } from "./autonomy.ts";
+import autonomy from "./autonomy/index.ts";
+import { fakeContext } from "./v2-context.test.helper.mts";
 import { bashGuardRejection, blockReason, denyReason, runHook, runHookText, visualReportRejection } from "./lib/autonomy-hooks.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -166,23 +167,20 @@ test("visual report rejection denies a pull request body without the section", a
   assert.match(reason ?? "", /Visual report/);
 });
 
-test("bash tool rejects a pull request body without a visual report", async () => {
+test("shell tool rejects a pull request body without a visual report", async () => {
   const { root } = setup();
   const directory = path.join(root, "proj");
   const hooks = path.join(directory, ".claude", "hooks");
   fs.mkdirSync(hooks, { recursive: true });
   fs.copyFileSync(path.join(repo, ".claude/hooks/pr-visual-report.sh"), path.join(hooks, "pr-visual-report.sh"));
   fs.writeFileSync(path.join(hooks, "autonomy-git-guard.sh"), "exit 0\n");
-  const plugin = await AutonomyPlugin({
-    directory,
-    client: {} as never,
-    $: (() => undefined) as never,
-  });
+  const { ctx, run } = fakeContext(directory);
+  await autonomy.setup(ctx as never);
   await assert.rejects(
-    () => plugin["tool.execute.before"]({ tool: "bash" }, { args: { command: 'gh pr create --body "no report"' } }),
+    run("tool.execute.before", { tool: "shell", input: { command: 'gh pr create --body "no report"' } }),
     /Visual report/,
   );
-  await plugin["tool.execute.before"]({ tool: "bash" }, { args: { command: "git status" } });
+  await run("tool.execute.before", { tool: "shell", input: { command: "git status" } });
 });
 
 test("idle stop gate sees running OpenCode child sessions", async () => {
@@ -198,35 +196,25 @@ test("idle stop gate sees running OpenCode child sessions", async () => {
     path.join(hooks, "ship-stop-gate.sh"),
     `cat > ${JSON.stringify(seen)}\nprintf '%s\\n' '{"decision":"block","reason":"hold"}'\n`,
   );
-  const prompts: string[] = [];
-  const plugin = await AutonomyPlugin({
-    directory,
-    client: {
-      session: {
-        get: async () => ({ data: {} }),
-        list: async () => ({
-          data: [
-            { id: "root", parentID: null, status: { type: "idle" }, agent: "conductor" },
-            { id: "other", parentID: null, status: { type: "busy" }, agent: "coder" },
-            { id: "child", parentID: "root", status: { type: "busy" }, agent: "code-reviewer" },
-            { id: "done", parentID: "root", status: { type: "idle" }, agent: "security-reviewer" },
-          ],
-        }),
-        promptAsync: async (args: { body?: { parts?: Array<{ text?: string }> } }) => {
-          prompts.push(args.body?.parts?.[0]?.text ?? "");
-        },
-      },
-    } as never,
-    $: (() => ({ cwd: () => ({ quiet: () => ({ nothrow: () => Promise.resolve() }) }) })) as never,
+  const { ctx, prompts } = fakeContext(directory, {
+    events: [{ type: "session.idle", data: { sessionID: "root" } }],
+    children: [
+      { id: "child", agent: "code-reviewer", time: { busy: 2, idle: 1 } },
+      { id: "done", agent: "security-reviewer", time: { busy: 1, idle: 2 } },
+      { id: "finished", agent: "coder", outcome: {}, time: { busy: 3 } },
+    ],
   });
-  await plugin.event({ type: "session.idle", properties: { sessionID: "root" } });
+  await autonomy.setup(ctx as never);
+  for (let wait = 0; wait < 100 && prompts.length === 0; wait += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   const body = JSON.parse(fs.readFileSync(seen, "utf8"));
   assert.equal(body.session_id, "root");
   assert.deepEqual(body.subagents, [{ status: "running", type: "code-reviewer" }]);
-  assert.deepEqual(prompts, ["hold"]);
+  assert.deepEqual(prompts, [{ sessionID: "root", text: "hold" }]);
 });
 
-test("bash tool throws when the checkout git guard asks", async () => {
+test("shell tool throws when the checkout git guard asks", async () => {
   const { root } = setup();
   const directory = path.join(root, "proj");
   const hooks = path.join(directory, ".claude", "hooks");
@@ -234,13 +222,45 @@ test("bash tool throws when the checkout git guard asks", async () => {
     hooks,
     "echo '{\"hookSpecificOutput\":{\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"confirm the push\"}}'\n",
   );
-  const plugin = await AutonomyPlugin({
-    directory,
-    client: {} as never,
-    $: (() => undefined) as never,
-  });
+  const { ctx, run } = fakeContext(directory);
+  await autonomy.setup(ctx as never);
   await assert.rejects(
-    () => plugin["tool.execute.before"]({ tool: "bash" }, { args: { command: "git status" } }),
+    run("tool.execute.before", { tool: "shell", input: { command: "git status" } }),
     /confirm the push/,
+  );
+});
+
+test("the git guard judges the checkout the shell call runs in", async () => {
+  const { root } = setup();
+  const directory = path.join(root, "proj");
+  const other = path.join(root, "other-checkout");
+  fs.mkdirSync(other, { recursive: true });
+  // Denies with the cwd and project dir it was given, so the test sees which checkout it judged.
+  writeGuard(
+    path.join(directory, ".claude", "hooks"),
+    `node -e 'let s="";process.stdin.on("data",(d)=>{s+=d}).on("end",()=>{process.stdout.write(JSON.stringify({hookSpecificOutput:{permissionDecision:"deny",permissionDecisionReason:"cwd="+JSON.parse(s).cwd+" project="+process.env.CLAUDE_PROJECT_DIR}}))})'\n`,
+  );
+  const { ctx, run } = fakeContext(directory);
+  await autonomy.setup(ctx as never);
+  await assert.rejects(
+    run("tool.execute.before", { tool: "shell", input: { command: "git status", workdir: other } }),
+    (error: Error) => error.message === `cwd=${other} project=${other}`,
+  );
+});
+
+test("a guard script in the shell call's workdir never replaces the session's guard", async () => {
+  const { root } = setup();
+  const directory = path.join(root, "proj");
+  const other = path.join(root, "planted");
+  writeGuard(
+    path.join(directory, ".claude", "hooks"),
+    `echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"session guard"}}'\n`,
+  );
+  writeGuard(path.join(other, ".claude", "hooks"), "exit 0\n");
+  const { ctx, run } = fakeContext(directory);
+  await autonomy.setup(ctx as never);
+  await assert.rejects(
+    run("tool.execute.before", { tool: "shell", input: { command: "git push origin master", workdir: other } }),
+    /session guard/,
   );
 });

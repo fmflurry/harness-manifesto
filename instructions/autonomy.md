@@ -79,11 +79,11 @@ Do not start another fix round.
 
 ## OpenCode enforcement
 
-`plugins/autonomy.ts` enforces the flag at runtime:
+`plugins/autonomy/index.ts` enforces the flag at runtime:
 
 - Blocks the `question` tool while the flag is on (rules a and c).
-- Injects autonomy context into the system prompt through `experimental.chat.system.transform`, using the shared `autonomy-context.sh` hook.
-- Runs `autonomy-git-guard.sh` before each bash call and denies forbidden git commands (rule d).
+- Injects autonomy context into the system prompt through `ctx.session.hook("context")`, using the shared `autonomy-context.sh` hook.
+- Runs `autonomy-git-guard.sh` before each shell call, in the checkout the call runs in, and denies forbidden git commands (rule d).
 - On `session.idle` of a root session, runs `ship-stop-gate.sh` and passes the session id plus running child sessions. If the gate blocks, the plugin re-prompts the session with the gate's reason. OpenCode has no stop hook, so the turn ends and a new one starts. A stop during `goal wait` or a live child review is not counted. Consecutive empty stops escalate at 5. A local commit, a review verdict, a higher fix iteration, or a new PR head resets that count. Thirty counted stops still escalate. Before both verdicts pass, the reason says to finish local review, not to push.
 
 `install.sh` deploys the three hooks to `~/.config/opencode/scripts/agent-harness/hooks/`. OpenCode-only installs also get the `~/.local/bin/agent-harness` wrapper.
