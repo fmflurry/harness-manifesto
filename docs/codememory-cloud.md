@@ -34,4 +34,4 @@ Shared logic: `plugins/code-memory-lib/mode.ts` and `.claude/hooks/codememory-mo
 
 `CURSOR_WORKLOAD_CGROUP` on this VM contained `cursor-agent` under a pod cgroup. That was observed, not used: it is not in Cursor's public metadata contract.
 
-Hooks (`prefer-code-memory.sh`, the code-memory sentence in `tool-budget.sh`) and the OpenCode plugins (`plugins/code-memory.ts`, the code-memory sentence in `plugins/tool-budget.ts`, `createMemoryClient`) no-op when the decision is off. `plugins/code-memory-lib/claim-intent.ts` already returns no claim. Rules and skills tell the agent to skip rather than call CodeMemory.
+Hooks (`prefer-code-memory.sh`, the code-memory sentence in `tool-budget.sh`) and the OpenCode plugins (`plugins/code-memory/index.ts`, the code-memory sentence in `plugins/tool-budget/index.ts`, `createMemoryClient`) no-op when the decision is off. `plugins/code-memory-lib/claim-intent.ts` already returns no claim. Rules and skills tell the agent to skip rather than call CodeMemory.

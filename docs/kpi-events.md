@@ -70,7 +70,7 @@ Cursor:
 - `sessionStart`, `sessionEnd`, and `subagentStop` are registered. `subagent_type` becomes `agent`. `tokens` is null. Payload usage and transcripts are ignored.
 - `scripts/cursor-plugin/lib.mjs` builds `postToolUse` from the Claude `PostToolUse` hook, for both the Monolith and Conductor plugin builds.
 
-OpenCode (`plugins/kpi.ts`):
+OpenCode (`plugins/kpi/index.ts`):
 
 - `tool.execute.before` writes `tool_call`. A `skill` tool adds `skill`. A `task` or `agent` tool also writes `subagent_spawn` with `agent`.
 - `tool.execute.after` writes `tool_result` with `ok` and `duration_ms` measured in the plugin. Arguments and outputs are not forwarded.

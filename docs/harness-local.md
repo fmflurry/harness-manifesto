@@ -72,7 +72,7 @@ dotnet-ddd
 
 When the hook is enabled it runs that script with the project as the working directory and `HARNESS_PROJECT_ROOT` set. Claude Code passes the hook payload on stdin. OpenCode passes `{"tool","args"}`. A non-zero script status blocks the edit. The script has 30 seconds.
 
-Claude runs `.claude/hooks/domain-rules.sh` before Edit, Write, and MultiEdit. OpenCode runs `plugins/domain-rules.ts` before `write`, `edit`, `patch`, and `multiedit`.
+Claude runs `.claude/hooks/domain-rules.sh` before Edit, Write, and MultiEdit. OpenCode runs `plugins/domain-rules/index.ts` before `write`, `edit`, `patch`, and `multiedit`.
 
 ## Status
 
