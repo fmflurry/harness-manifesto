@@ -188,6 +188,7 @@ h2 { font-size: 1.12rem; margin: 0 0 .15rem; font-weight: 600; letter-spacing: .
     <div class="stat"><b>13</b><span>deny rules</span></div>
     <div class="stat"><b>13</b><span>instruction files</span></div>
   </div>
+  <p class="panel-note">counts from the repo tree; a Monolith install adds <code>instructions/monolith.md</code> and the <code>conductor</code> skill</p>
 
   <!-- MODE -->
   <section class="panel mode-wrap">
@@ -244,7 +245,7 @@ h2 { font-size: 1.12rem; margin: 0 0 .15rem; font-weight: 600; letter-spacing: .
             <div class="gates">
               <div class="gate hard"><span class="tag">1</span><span><b>secret guard</b> (OpenCode plugin) — <code>read</code> or <code>bash</code> touching <code>.env</code> → <b>deny</b> <small>(example/sample/template exempt)</small></span></div>
               <div class="gate hard"><span class="tag">2</span><span><b>git guard</b> — worktree removal always denied; while autonomous also merge, push-to-base, shell edit of harness files</span></div>
-              <div class="gate hard"><span class="tag">3</span><span><b>task allow-list</b> — <code>permission.task</code> in <code>opencode.jsonc</code>: <code>{"*": deny}</code>, 9 named subagents allowed</span></div>
+              <div class="gate hard"><span class="tag">3</span><span><b>task allow-list</b> (OpenCode) — <code>permission.task</code> in <code>opencode.jsonc</code>: <code>{"*": deny}</code>, 9 named subagents allowed</span></div>
               <div class="gate soft"><span class="tag">4</span><span><b>tool budget</b> — 3rd exploratory call with 0 edits → nudge; ratio &gt; 3 after 5 edits → <code>bash-budget:</code> line</span></div>
               <div class="gate soft"><span class="tag">5</span><span><b>rewrites</b> — <code>rtk-rewrite</code>, <code>prefer-code-memory</code>, <code>domain-rules</code>, <code>pr-visual-report</code></span></div>
             </div>
