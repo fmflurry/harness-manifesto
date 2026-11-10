@@ -16,7 +16,6 @@ import { Plugin } from "@opencode/plugin";
 
 import { resolveCodememory } from "../code-memory-lib/mode.ts";
 import { isShellTool } from "../lib/tool-names.ts";
-import { formatNumber } from "../llm-metrics-lib/format.ts";
 
 type Category = "exploratory" | "edit" | null;
 
@@ -106,8 +105,8 @@ export default Plugin.define({
 
       if (state.edits >= 5 && state.exploratory > state.edits * 3) {
         state.pendingNudge =
-          `Exploratory:edit ratio exceeds 3 at ${formatNumber(state.edits)} edits ` +
-          `(${formatNumber(state.exploratory)} exploratory calls). Your next assistant message ` +
+          `Exploratory:edit ratio exceeds 3 at ${state.edits} edits ` +
+          `(${state.exploratory} exploratory calls). Your next assistant message ` +
           "must contain one line: bash-budget: <why exploratory shell is still necessary>";
       }
     });

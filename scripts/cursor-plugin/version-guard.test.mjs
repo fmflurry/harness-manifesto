@@ -56,7 +56,6 @@ test('rejects a version lower than the base and suggests a bump above the base',
 test('a non-plugin change does not require a bump', () => {
   const changed = [
     'README.md',
-    'plugins/notification-gate.test.mts',
     'scripts/cursor-plugin/check.mjs',
     '.claude/hooks/notification.sh',
     '.github/workflows/cursor-plugin.yml',
