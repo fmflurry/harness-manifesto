@@ -123,18 +123,25 @@ export default Plugin.define({
         throw new Error(ASK_DENIED);
       }
       if (!isShellTool(tool)) return;
-      const args = event.input as { command?: unknown } | null;
+      const args = event.input as { command?: unknown; workdir?: unknown } | null;
       if (typeof args?.command !== "string") return;
+      // Each OpenCode 2 shell call names its own workdir; the guards judge that checkout,
+      // not the session's folder.
+      const where =
+        typeof args.workdir === "string" && args.workdir.length > 0
+          ? path.resolve(directory, args.workdir)
+          : directory;
+      const checkout = { directory: where };
 
       const reason = await bashGuardRejection(
-        { tool_input: { command: args.command }, cwd: directory },
-        opts,
+        { tool_input: { command: args.command }, cwd: where },
+        checkout,
       );
       if (reason) throw new Error(reason);
 
       const visual = await visualReportRejection(
-        { tool_input: { command: args.command }, cwd: directory },
-        opts,
+        { tool_input: { command: args.command }, cwd: where },
+        checkout,
       );
       if (visual) throw new Error(visual);
     });
