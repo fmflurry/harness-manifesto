@@ -9,6 +9,7 @@ import {
   GATE_TIMEOUT_MS,
   bashGuardRejection,
   blockReason,
+  projectHookDirs,
   runHook,
   runHookText,
   visualReportRejection,
@@ -125,13 +126,14 @@ export default Plugin.define({
       if (!isShellTool(tool)) return;
       const args = event.input as { command?: unknown; workdir?: unknown } | null;
       if (typeof args?.command !== "string") return;
-      // Each OpenCode 2 shell call names its own workdir; the guards judge that checkout,
-      // not the session's folder.
+      // Each OpenCode 2 shell call names its own workdir; the guards judge that checkout. The guard
+      // scripts still come from the session's checkout and the install, so a workdir holding its
+      // own .claude/hooks cannot swap in a permissive guard.
       const where =
         typeof args.workdir === "string" && args.workdir.length > 0
           ? path.resolve(directory, args.workdir)
           : directory;
-      const checkout = { directory: where };
+      const checkout = { directory: where, dirs: projectHookDirs(directory) };
 
       const reason = await bashGuardRejection(
         { tool_input: { command: args.command }, cwd: where },

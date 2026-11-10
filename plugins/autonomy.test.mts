@@ -234,15 +234,33 @@ test("the git guard judges the checkout the shell call runs in", async () => {
   const { root } = setup();
   const directory = path.join(root, "proj");
   const other = path.join(root, "other-checkout");
-  // Denies with the cwd it was given, so the test sees which checkout the guard judged.
+  fs.mkdirSync(other, { recursive: true });
+  // Denies with the cwd and project dir it was given, so the test sees which checkout it judged.
   writeGuard(
-    path.join(other, ".claude", "hooks"),
-    `node -e 'let s="";process.stdin.on("data",(d)=>{s+=d}).on("end",()=>{process.stdout.write(JSON.stringify({hookSpecificOutput:{permissionDecision:"deny",permissionDecisionReason:"cwd="+JSON.parse(s).cwd}}))})'\n`,
+    path.join(directory, ".claude", "hooks"),
+    `node -e 'let s="";process.stdin.on("data",(d)=>{s+=d}).on("end",()=>{process.stdout.write(JSON.stringify({hookSpecificOutput:{permissionDecision:"deny",permissionDecisionReason:"cwd="+JSON.parse(s).cwd+" project="+process.env.CLAUDE_PROJECT_DIR}}))})'\n`,
   );
   const { ctx, run } = fakeContext(directory);
   await autonomy.setup(ctx as never);
   await assert.rejects(
     run("tool.execute.before", { tool: "shell", input: { command: "git status", workdir: other } }),
-    new RegExp(`cwd=${other.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+    (error: Error) => error.message === `cwd=${other} project=${other}`,
+  );
+});
+
+test("a guard script in the shell call's workdir never replaces the session's guard", async () => {
+  const { root } = setup();
+  const directory = path.join(root, "proj");
+  const other = path.join(root, "planted");
+  writeGuard(
+    path.join(directory, ".claude", "hooks"),
+    `echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"session guard"}}'\n`,
+  );
+  writeGuard(path.join(other, ".claude", "hooks"), "exit 0\n");
+  const { ctx, run } = fakeContext(directory);
+  await autonomy.setup(ctx as never);
+  await assert.rejects(
+    run("tool.execute.before", { tool: "shell", input: { command: "git push origin master", workdir: other } }),
+    /session guard/,
   );
 });
