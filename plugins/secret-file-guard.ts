@@ -26,6 +26,7 @@
  */
 import type { PluginInput } from "@opencode-ai/plugin";
 import { emitKpi } from "./lib/kpi-emit.ts";
+import { isShellTool } from "./lib/tool-names.ts";
 
 const ALLOWED_ENV_VARIANT_RE =
   /(^|\/)\.env\.(example|sample|template)(\.[A-Za-z0-9_-]+)?$/;
@@ -86,7 +87,7 @@ export const SecretFileGuardPlugin = async ({ directory }: PluginInput) => {
         }
       }
 
-      if (input.tool === "bash") {
+      if (isShellTool(input.tool)) {
         const command = stringArg(output.args, "command");
         if (commandReadsEnvSecret(command)) {
           emitKpi(directory, ["guard_block", "guard=secret"]);

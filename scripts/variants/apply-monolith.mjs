@@ -187,11 +187,11 @@ function applyClaude(dir) {
   console.log(`apply-monolith: claude ${dir}`);
 }
 
-function instructionEntry(dir) {
+function instructionEntry(dir, file) {
   const globalDir = path.join(process.env.HOME || '', '.config', 'opencode');
-  if (samePath(dir, globalDir)) return '~/.config/opencode/instructions/monolith.md';
-  if (path.basename(path.resolve(dir)) === '.opencode') return '.opencode/instructions/monolith.md';
-  return path.join(dir, 'instructions', 'monolith.md');
+  if (samePath(dir, globalDir)) return `~/.config/opencode/instructions/${file}`;
+  if (path.basename(path.resolve(dir)) === '.opencode') return `.opencode/instructions/${file}`;
+  return path.join(dir, 'instructions', file);
 }
 
 function applyOpencode(dir) {
@@ -206,7 +206,8 @@ function applyOpencode(dir) {
   write(path.join(dir, 'instructions', 'subagent-routing.md'), read('variants/monolith/stubs/routing.md'));
   write(path.join(dir, 'instructions', 'tool-budget.md'), read('variants/monolith/stubs/tool-budget.md'));
   write(path.join(dir, 'instructions', 'verification-gate.md'), read('variants/monolith/stubs/verification-gate.md'));
-  cfg.instructions = [instructionEntry(dir)];
+  // Skills load the other rules on demand; autonomy applies to every task, so it is always loaded.
+  cfg.instructions = [instructionEntry(dir, 'monolith.md'), instructionEntry(dir, 'autonomy.md')];
   cfg.default_agent = 'main';
 
   const deferred = {};

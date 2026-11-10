@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The harness on OpenCode 2</title>
+<style>
+  :root { --bg:#FAF6EE; --card:#FFFDF8; --ink:#2B2620; --muted:#6E655A; --line:#E6DDCC; --bad:#B4543F; --good:#3F7A4F; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:32px; background:var(--bg); color:var(--ink); font-family: Georgia, "Iowan Old Style", "Times New Roman", serif; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 24px; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; box-shadow:0 1px 2px #0000000d; }
+  h2 { font-size:17px; margin:0 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:normal; }
+  .bad { color:var(--bad); } .good { color:var(--good); }
+  code { font-family: ui-monospace, Menlo, monospace; font-size:12.5px; background:#F1EADB; padding:1px 4px; border-radius:4px; }
+  ul { margin:6px 0 0 18px; padding:0; font-size:14px; } li { margin:3px 0; }
+  .full { grid-column: 1 / -1; }
+  @media (max-width: 760px) { body { padding:16px; } .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>The harness on OpenCode 2</h1>
+<p class="sub">After the switch to OpenCode 2.2.7, autonomy, the git guard, the stop gate and the secret guard stopped working there. Claude Code was unaffected.</p>
+<div class="grid">
+  <div class="card full">
+    <h2>What broke, and the fix</h2>
+    <table>
+      <tr><th>Break</th><th>Before (OpenCode 2)</th><th>After</th></tr>
+      <tr><td><code>goal-state.sh</code> missing beside the hooks</td><td class="bad">autonomy-context, git guard and stop gate crash: <code>GOAL_FILE</code> unbound</td><td class="good"><code>install.sh</code> copies it with the hooks</td></tr>
+      <tr><td>Shell tool renamed <code>bash</code> → <code>shell</code></td><td class="bad">git guard, visual-report guard, <b>secret-file guard</b> and tool budget skip every shell call</td><td class="good"><code>isShellTool</code> matches both, in V1 and V2 plugins</td></tr>
+      <tr><td><code>ctx.app.log</code> does not exist in V2</td><td class="bad">code-memory gate throws on every read, grep, glob; mistral-affinity drops its errors</td><td class="good"><code>console.warn</code> / <code>console.error</code></td></tr>
+      <tr><td>V1 single-file plugins</td><td class="bad">"Plugin must export a default definition with an id"; the working V2 ports lived outside the repo</td><td class="good">the repo ships the 8 V2 folder ports with <code>@opencode/plugin</code> 2.2.7</td></tr>
+      <tr><td>Monolith instructions</td><td class="bad">only <code>monolith.md</code>: the autonomy rule never reached the model</td><td class="good"><code>monolith.md</code> + <code>autonomy.md</code></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Main files</h2>
+    <ul>
+      <li><code>install.sh</code>: the hook list gains <code>goal-state</code></li>
+      <li><code>plugins/lib/tool-names.ts</code>: <code>isShellTool</code></li>
+      <li><code>plugins/&lt;name&gt;/index.ts</code>: V2 ports of autonomy, code-memory, commit-provenance, domain-rules, kpi, mistral-affinity, secret-file-guard, tool-budget</li>
+      <li><code>scripts/variants/apply-monolith.mjs</code>: autonomy instructions</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h2>Tests</h2>
+    <ul>
+      <li><code>plugins/v2-shell-tool.test.mts</code>: 6 new, all failed first on the real bugs</li>
+      <li>installer test: <code>goal-state.sh</code> installed, and <code>autonomy-context.sh</code> runs from the install folder</li>
+      <li><code>run.sh</code>: 2769 passed, 0 failed · strict typecheck clean · cursor-plugin check OK</li>
+      <li><code>npm test</code>: 4 environment-bound failures, the same on master</li>
+    </ul>
+  </div>
+  <div class="card full">
+    <h2>Risks and follow-ups</h2>
+    <ul>
+      <li><code>llm-metrics</code> and <code>notification</code> have no V2 port yet; autonomy already sends the idle notification.</li>
+      <li>The V2 commit-provenance shell hook did not set trailers in a Claude-through-OpenCode session; check it in a fresh session after reinstall.</li>
+      <li>The V1 single files stay for V1 installs; OpenCode 2 logs one load warning for each.</li>
+    </ul>
+  </div>
+</div>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/settings-opencode  fix/opencode-v2-plugin-hooks  pr n/a. Status: complete.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">1s</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">1s (gaps over 5m excluded)</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">cursor 1, claude 0, opencode 0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr></table>
+<p style="margin:10px 0 0">Tools: Bash 2</p>
+<p style="margin:4px 0 0">Skills: none</p>
+<p style="margin:4px 0 0">Agents: main 0, generalPurpose 2</p>
+<p style="margin:4px 0 0">Failure tools: none. Durations: n/a.</p>
+</section>
+</body>
+</html>

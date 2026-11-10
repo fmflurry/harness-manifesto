@@ -18,6 +18,7 @@
 import type { PluginInput } from "@opencode-ai/plugin";
 
 import { resolveCodememory } from "./code-memory-lib/mode.ts";
+import { isShellTool } from "./lib/tool-names.ts";
 import { formatNumber } from "./llm-metrics-lib/format.ts";
 
 type Category = "exploratory" | "edit" | null;
@@ -90,7 +91,7 @@ export const ToolBudgetPlugin = async (_input: PluginInput) => {
       const state = stateFor(states, input.sessionID);
 
       let category: Category = null;
-      if (tool === "bash") {
+      if (isShellTool(tool)) {
         category = classifyBash(stringArg(output.args, "command"));
       } else if (EDIT_TOOLS.has(tool)) {
         category = "edit";

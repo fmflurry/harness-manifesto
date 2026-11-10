@@ -1,0 +1,46 @@
+{
+  "feature": {
+    "repo": "fmflurry/settings-opencode",
+    "branch": "fix/opencode-v2-plugin-hooks",
+    "pr": null
+  },
+  "prs": [],
+  "wall_ms": 1000,
+  "active_ms": 1000,
+  "idle_gap_min": 5,
+  "sessions": {
+    "cursor": 1,
+    "claude": 0,
+    "opencode": 0
+  },
+  "tools": [
+    {
+      "name": "Bash",
+      "count": 2
+    }
+  ],
+  "skills": [],
+  "agents": [
+    {
+      "name": "main",
+      "calls": 0
+    },
+    {
+      "name": "generalPurpose",
+      "calls": 2
+    }
+  ],
+  "tool_failures": 0,
+  "failure_tools": [],
+  "duration_ms": null,
+  "guard_blocks": 0,
+  "guards": {},
+  "review_rounds": 0,
+  "fix_rounds": 0,
+  "tokens": null,
+  "tokens_known": 0,
+  "events": 4,
+  "first_ts": "2026-11-10T21:00:22Z",
+  "last_ts": "2026-11-10T21:00:23Z",
+  "partial": false
+}

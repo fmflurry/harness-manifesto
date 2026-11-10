@@ -36,6 +36,12 @@ test('monolith overlay keeps conductor sources and installs the lean roster', ()
 
   const cfg = parseJsonc(fs.readFileSync(path.join(opencode, 'opencode.jsonc'), 'utf8'));
   assert.equal(cfg.instructions[0], path.join(opencode, 'instructions', 'monolith.md'));
+  // The autonomy rule is mandatory for every task, so Monolith loads it with its baseline.
+  assert.deepEqual(cfg.instructions, [
+    path.join(opencode, 'instructions', 'monolith.md'),
+    path.join(opencode, 'instructions', 'autonomy.md'),
+  ]);
+  assert.ok(fs.existsSync(path.join(opencode, 'instructions', 'autonomy.md')));
   assert.equal(cfg.default_agent, 'main');
   assert.equal(cfg.agent.conductor, undefined);
   assert.equal(cfg.agent.planner, undefined);
@@ -91,7 +97,10 @@ test('monolith overlay keeps conductor sources and installs the lean roster', ()
   });
   assert.equal(local.status, 0, `${local.stdout}\n${local.stderr}`);
   const localCfg = parseJsonc(fs.readFileSync(path.join(projectOpencode, 'opencode.jsonc'), 'utf8'));
-  assert.deepEqual(localCfg.instructions, ['.opencode/instructions/monolith.md']);
+  assert.deepEqual(localCfg.instructions, [
+    '.opencode/instructions/monolith.md',
+    '.opencode/instructions/autonomy.md',
+  ]);
 
   const home = path.join(tmp, 'home');
   const globalDir = path.join(home, '.config', 'opencode');
@@ -102,6 +111,9 @@ test('monolith overlay keeps conductor sources and installs the lean roster', ()
   });
   assert.equal(globalApply.status, 0, `${globalApply.stdout}\n${globalApply.stderr}`);
   const globalCfg = parseJsonc(fs.readFileSync(path.join(globalDir, 'opencode.jsonc'), 'utf8'));
-  assert.deepEqual(globalCfg.instructions, ['~/.config/opencode/instructions/monolith.md']);
+  assert.deepEqual(globalCfg.instructions, [
+    '~/.config/opencode/instructions/monolith.md',
+    '~/.config/opencode/instructions/autonomy.md',
+  ]);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
