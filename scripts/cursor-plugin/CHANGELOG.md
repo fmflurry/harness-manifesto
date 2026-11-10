@@ -2,6 +2,11 @@
 
 Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cursor-plugin/config.json` and is copied into `.cursor-plugin/plugin.json` by `node scripts/build-cursor-plugin.mjs`.
 
+## [0.4.45] - 2026-11-10
+
+- OpenCode 2 only: the OpenCode 1 single-file plugins are gone, so OpenCode 2 no longer reports them as failed. `opencode.jsonc` uses `plugins` and names only `opencode-skill-creator`; `kdco-primitives` moves to `plugins/lib/`. A reinstall retires the old files, a stray `plugins/ecc-hooks.ts` and the old `plugins/kdco-primitives/`.
+- The OpenCode autonomy guards judge the checkout a shell call runs in (its `workdir`), not the session folder.
+
 ## [0.4.44] - 2026-11-10
 
 - The OpenCode `notification` and `llm-metrics` plugins are removed, with the llm-metrics TUI sidebar, dashboard script and `LLM_METRICS.md`. A reinstall moves those files from an existing install into `.settings-opencode-retired/<stamp>/`, outside plugin discovery, instead of leaving them loaded.
