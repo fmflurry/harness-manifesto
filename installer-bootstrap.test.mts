@@ -49,6 +49,17 @@ const retiredInstallableLearningPaths = [
   "commands/learn-review.md",
   "plugins/learning-loop.ts",
 ] as const;
+// Files the repo stopped shipping; a reinstall must move them out of OpenCode's discovery.
+const retiredOpencodePaths = [
+  "plugins/notification.ts",
+  "plugins/notification-gate.ts",
+  "plugins/lib/notification-gate.ts",
+  "plugins/llm-metrics.ts",
+  "plugins/llm-metrics-lib",
+  "tui-plugins/llm-metrics.tsx",
+  "scripts/llm-metrics-dashboard.ts",
+  "LLM_METRICS.md",
+] as const;
 const pwshAvailability = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", "exit 0"], {
   encoding: "utf8",
 });
@@ -1468,161 +1479,67 @@ if ($null -eq $claudeBranch -or
   assert.equal(result.status, 0, `PowerShell source-equivalence guards failed\n${output}`);
 });
 
-test("PowerShell bootstrap removes only an exact root notification helper and backs up modified files or symlinks", {
+test("PowerShell bootstrap retires the files the repo no longer ships, after the OpenCode copy", {
   skip: pwshSkipReason,
 }, () => {
-  const result = runPowerShellAstAssertions(String.raw`
-$migrationFunctions = @($ast.FindAll({
+  const windowsPaths = retiredOpencodePaths.map((path) => `'${path.replaceAll("/", "\\")}'`).join(", ");
+  const result = runPowerShellAstAssertions(`
+$functions = @($ast.FindAll({
     param($node)
-    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-        $node.Extent.Text -match 'plugins[\\/]notification-gate\.ts' -and
-        $node.Extent.Text -match 'plugins[\\/]lib[\\/]notification-gate\.ts'
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Move-RetiredOpencodeFiles'
 }, $true))
-if ($migrationFunctions.Count -ne 1) {
-    throw "expected one root notification-helper migration function, found $($migrationFunctions.Count)"
+if ($functions.Count -ne 1) { throw "expected one Move-RetiredOpencodeFiles, found $($functions.Count)" }
+$body = $functions[0].Extent.Text
+foreach ($path in @(${windowsPaths})) {
+    if (-not $body.Contains($path)) { throw "Move-RetiredOpencodeFiles does not retire $path" }
 }
-
-$migration = $migrationFunctions[0]
-$body = $migration.Extent.Text
-if ($body -notmatch 'PathType\s+Leaf' -or $body -notmatch 'Get-FileHash|ReadAllBytes|Compare-Object') {
-    throw 'notification migration must identify an exact known regular-file payload before deletion'
+if (-not $body.Contains('.settings-opencode-retired') -or -not $body.Contains('Move-Item')) {
+    throw 'retired files must be moved into the backup folder, never deleted'
 }
-if ($body -notmatch 'Remove-Item') {
-    throw 'notification migration must remove the exact known regular-file payload'
-}
-if ($body -notmatch 'Test-ReparsePoint|ReparsePoint|LinkType') {
-    throw 'notification migration must distinguish symlinks/reparse points without dereferencing them'
-}
-if ($body -notmatch '\.settings-opencode-backups' -or $body -notmatch 'Move-Item') {
-    throw 'notification migration must move modified files and symlinks into a safe backup location'
-}
-
-$migrationInvocations = @($ast.FindAll({
+$calls = @($ast.FindAll({
     param($node)
-    $node -is [System.Management.Automation.Language.CommandAst] -and
-        $node.GetCommandName() -eq $migration.Name
-}, $true) | Where-Object {
-    $_.Extent.StartOffset -lt $migration.Extent.StartOffset -or
-        $_.Extent.StartOffset -gt $migration.Extent.EndOffset
-})
-if ($migrationInvocations.Count -ne 1) {
-    throw "expected one $($migration.Name) invocation, found $($migrationInvocations.Count)"
-}
-
-$opencodeCopies = @($ast.FindAll({
-    param($node)
-    $node -is [System.Management.Automation.Language.CommandAst] -and
-        $node.GetCommandName() -eq 'Copy-Tree'
+    $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Move-RetiredOpencodeFiles'
 }, $true))
-$lastOpenCodeCopyEnd = ($opencodeCopies | ForEach-Object { $_.Extent.EndOffset } | Measure-Object -Maximum).Maximum
-if ($null -eq $lastOpenCodeCopyEnd -or $migrationInvocations[0].Extent.StartOffset -le $lastOpenCodeCopyEnd) {
-    throw 'root notification-helper migration must run after OpenCode target preparation'
+if ($calls.Count -ne 1) { throw "expected one Move-RetiredOpencodeFiles call, found $($calls.Count)" }
+$copies = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Copy-Tree'
+}, $true))
+$lastCopyEnd = ($copies | ForEach-Object { $_.Extent.EndOffset } | Measure-Object -Maximum).Maximum
+if ($null -eq $lastCopyEnd -or $calls[0].Extent.StartOffset -le $lastCopyEnd) {
+    throw 'retired files must be moved after the OpenCode copy'
 }
 `);
-  const output = `${result.stdout}\n${result.stderr}`;
-
-  assert.equal(result.status, 0, `PowerShell notification-helper migration contract failed\n${output}`);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 });
 
-test("OpenCode reinstall removes the known managed root notification helper copy", () => {
-  const tmpRoot = mkdtempSync(join(tmpdir(), "settings-opencode-notification-prune-"));
-  try {
-    const projectDir = join(tmpRoot, "project");
-    const homeDir = join(tmpRoot, "home");
-    const fakeBin = join(tmpRoot, "bin");
-    const pluginDir = join(homeDir, ".config", "opencode", "plugins");
-    const staleHelper = join(pluginDir, "notification-gate.ts");
-    mkdirSync(projectDir);
-    mkdirSync(fakeBin);
-    mkdirSync(pluginDir, { recursive: true });
-    writeFakeNpm(fakeBin);
-    useRealNode(fakeBin);
-    writeFileSync(staleHelper, readRepoFile("plugins/lib/notification-gate.ts"));
-
-    const result = spawnSync("bash", [installerPath, "--yes", "--no-claude"], {
-      cwd: projectDir,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        HOME: homeDir,
-        PATH: `${fakeBin}:/usr/bin:/bin:/usr/sbin:/sbin`,
-        SHELL: "/bin/zsh",
-      },
-    });
-    const output = `${result.stdout}\n${result.stderr}`;
-
-    assert.equal(result.status, 0, `known managed legacy cleanup must succeed\n${output}`);
-    assert.equal(existsSync(staleHelper), false, "the exact managed legacy helper must be pruned");
-    assert.equal(
-      existsSync(join(pluginDir, "lib", "notification-gate.ts")),
-      true,
-      "the non-auto-discovered notification helper must remain installed",
-    );
-  } finally {
-    rmSync(tmpRoot, { recursive: true, force: true });
+test("the repo no longer ships the retired OpenCode files, and install.sh retires each one", () => {
+  assert.deepEqual(retiredOpencodePaths.filter((path) => existsSync(join(repoRoot, path))), []);
+  const installer = readRepoFile("install.sh");
+  for (const path of retiredOpencodePaths) {
+    assert.ok(installer.includes(`    ${path}\n`), `install.sh must retire ${path}`);
   }
 });
 
-test("OpenCode reinstall never silently prunes a modified root notification helper", () => {
-  const tmpRoot = mkdtempSync(join(tmpdir(), "settings-opencode-notification-modified-"));
+test("OpenCode reinstall moves retired files out of discovery and keeps them in a backup", () => {
+  const tmpRoot = mkdtempSync(join(tmpdir(), "settings-opencode-retired-"));
   try {
     const projectDir = join(tmpRoot, "project");
     const homeDir = join(tmpRoot, "home");
     const fakeBin = join(tmpRoot, "bin");
-    const pluginDir = join(homeDir, ".config", "opencode", "plugins");
-    const staleHelper = join(pluginDir, "notification-gate.ts");
-    const modifiedContent = `${readRepoFile("plugins/lib/notification-gate.ts")}\n// user-owned customization 🛡️\n`;
-    mkdirSync(projectDir);
-    mkdirSync(fakeBin);
-    mkdirSync(pluginDir, { recursive: true });
-    writeFakeNpm(fakeBin);
-    writeFileSync(staleHelper, modifiedContent);
-
-    const result = spawnSync("bash", [installerPath, "--yes", "--no-claude"], {
-      cwd: projectDir,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        HOME: homeDir,
-        PATH: `${fakeBin}:/usr/bin:/bin:/usr/sbin:/sbin`,
-        SHELL: "/bin/zsh",
-      },
-    });
-    const output = `${result.stdout}\n${result.stderr}`;
-    const preservedInPlace = existsSync(staleHelper) && readFileSync(staleHelper, "utf8") === modifiedContent;
-    const reportsModifiedHelper = /notification-gate/i.test(output) && /modified|custom|refus|manual|unchanged/i.test(output);
-    const migratedSafely =
-      !existsSync(staleHelper) &&
-      treeContainsRegularFile(pluginDir, modifiedContent) &&
-      /notification-gate/i.test(output) &&
-      /migrat|backup|preserv/i.test(output);
-    const failedClearly = result.status !== 0 && reportsModifiedHelper;
-
-    assert.ok(
-      (preservedInPlace && failedClearly) || migratedSafely,
-      `modified notification helper content must be preserved with a clear refusal or explicitly migrated; got status ${result.status}\n${output}`,
-    );
-  } finally {
-    rmSync(tmpRoot, { recursive: true, force: true });
-  }
-});
-
-test("OpenCode reinstall never silently prunes a root notification helper symlink", () => {
-  const tmpRoot = mkdtempSync(join(tmpdir(), "settings-opencode-notification-symlink-"));
-  try {
-    const projectDir = join(tmpRoot, "project");
-    const homeDir = join(tmpRoot, "home");
-    const fakeBin = join(tmpRoot, "bin");
-    const pluginDir = join(homeDir, ".config", "opencode", "plugins");
-    const staleHelper = join(pluginDir, "notification-gate.ts");
+    const opencodeDir = join(homeDir, ".config", "opencode");
     const userHelper = join(tmpRoot, "user-notification-gate.ts");
     mkdirSync(projectDir);
     mkdirSync(fakeBin);
-    mkdirSync(pluginDir, { recursive: true });
+    mkdirSync(join(opencodeDir, "plugins", "llm-metrics-lib"), { recursive: true });
+    mkdirSync(join(opencodeDir, "tui-plugins"), { recursive: true });
     writeFakeNpm(fakeBin);
-    const userContent = "// user-owned symlink target 🔗\n";
-    writeFileSync(userHelper, userContent);
-    symlinkSync(userHelper, staleHelper);
+    useRealNode(fakeBin);
+    writeFileSync(join(opencodeDir, "plugins", "notification.ts"), "// old notification plugin\n");
+    writeFileSync(join(opencodeDir, "plugins", "llm-metrics-lib", "format.ts"), "// old metrics lib\n");
+    writeFileSync(join(opencodeDir, "tui-plugins", "llm-metrics.tsx"), "// old metrics tui\n");
+    writeFileSync(userHelper, "// user-owned symlink target\n");
+    symlinkSync(userHelper, join(opencodeDir, "plugins", "notification-gate.ts"));
 
     const result = spawnSync("bash", [installerPath, "--yes", "--no-claude"], {
       cwd: projectDir,
@@ -1634,53 +1551,22 @@ test("OpenCode reinstall never silently prunes a root notification helper symlin
         SHELL: "/bin/zsh",
       },
     });
-    const output = `${result.stdout}\n${result.stderr}`;
-    const preservedInPlace = existsSync(staleHelper) && lstatSync(staleHelper).isSymbolicLink() && readlinkSync(staleHelper) === userHelper;
-    const reportsSymlink = /notification-gate/i.test(output) && /symlink|symbolic|refus|manual|unchanged/i.test(output);
-    const migratedSafely =
-      !existsSync(staleHelper) &&
-      (treeContainsSymlink(pluginDir, userHelper) || treeContainsRegularFile(pluginDir, userContent)) &&
-      /notification-gate/i.test(output) &&
-      /migrat|backup|preserv/i.test(output) &&
-      /symlink|symbolic/i.test(output);
-    const failedClearly = result.status !== 0 && reportsSymlink;
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 
-    assert.equal(readFileSync(userHelper, "utf8"), userContent);
-    assert.ok(
-      (preservedInPlace && failedClearly) || migratedSafely,
-      `notification helper symlink must be preserved with a clear refusal or explicitly migrated; got status ${result.status}\n${output}`,
-    );
+    for (const path of ["plugins/notification.ts", "plugins/llm-metrics-lib", "tui-plugins/llm-metrics.tsx", "plugins/notification-gate.ts"]) {
+      assert.equal(existsSync(join(opencodeDir, path)), false, `${path} must leave plugin discovery`);
+    }
+    const retiredRoot = join(opencodeDir, ".settings-opencode-retired");
+    const [stamp] = readdirSync(retiredRoot);
+    const backup = join(retiredRoot, stamp ?? "");
+    assert.equal(readFileSync(join(backup, "plugins", "notification.ts"), "utf8"), "// old notification plugin\n");
+    assert.equal(readFileSync(join(backup, "plugins", "llm-metrics-lib", "format.ts"), "utf8"), "// old metrics lib\n");
+    assert.equal(readlinkSync(join(backup, "plugins", "notification-gate.ts")), userHelper);
+    assert.equal(readFileSync(userHelper, "utf8"), "// user-owned symlink target\n");
   } finally {
     rmSync(tmpRoot, { recursive: true, force: true });
   }
 });
-
-function treeContainsRegularFile(root: string, expectedContent: string): boolean {
-  if (!existsSync(root)) {
-    return false;
-  }
-  const metadata = lstatSync(root);
-  if (metadata.isSymbolicLink()) {
-    return false;
-  }
-  if (metadata.isFile()) {
-    return readFileSync(root, "utf8") === expectedContent;
-  }
-  return metadata.isDirectory() && readdirSync(root).some((entry) =>
-    treeContainsRegularFile(join(root, entry), expectedContent));
-}
-
-function treeContainsSymlink(root: string, expectedTarget: string): boolean {
-  if (!existsSync(root)) {
-    return false;
-  }
-  const metadata = lstatSync(root);
-  if (metadata.isSymbolicLink()) {
-    return readlinkSync(root) === expectedTarget;
-  }
-  return metadata.isDirectory() && readdirSync(root).some((entry) =>
-    treeContainsSymlink(join(root, entry), expectedTarget));
-}
 
 function withoutInstallerExcludes(entries: Record<string, string>): Record<string, string> {
   const kept: Record<string, string> = {};

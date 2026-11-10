@@ -419,43 +419,36 @@ ensure_opencode_runtime_dirs() {
     mkdir -p "$TARGET_OPENCODE/data/opencode"
 }
 
-prune_stale_opencode_plugin_helpers() {
-    local stale_helper="$TARGET_OPENCODE/plugins/notification-gate.ts"
-    local managed_helper="$TARGET_OPENCODE/plugins/lib/notification-gate.ts"
+# Files the repo no longer ships. rsync never deletes, so without this a reinstall would leave
+# them in place and OpenCode would keep loading them.
+RETIRED_OPENCODE_PATHS=(
+    plugins/notification.ts
+    plugins/notification-gate.ts
+    plugins/lib/notification-gate.ts
+    plugins/llm-metrics.ts
+    plugins/llm-metrics-lib
+    tui-plugins/llm-metrics.tsx
+    scripts/llm-metrics-dashboard.ts
+    LLM_METRICS.md
+)
+
+# Moves each retired path, file, folder or symlink, into a backup outside OpenCode's discovery.
+prune_retired_opencode_files() {
     [ "$OPENCODE_TARGET_READY" = "1" ] || return 0
-    [ -e "$stale_helper" ] || [ -L "$stale_helper" ] || return 0
-
-    if [ ! -L "$stale_helper" ] && [ -f "$stale_helper" ] && [ -f "$managed_helper" ] && cmp -s "$stale_helper" "$managed_helper"; then
-        rm "$stale_helper"
-        ok "removed known managed legacy plugin helper $stale_helper"
-        return 0
-    fi
-
-    if [ -L "$stale_helper" ] || [ -f "$stale_helper" ]; then
-        local backup_root="$TARGET_OPENCODE/plugins/.settings-opencode-backups"
-        local backup_dir backup_path
-        mkdir -p "$backup_root"
-        chmod 700 "$backup_root"
-        if ! backup_dir="$(mktemp -d "$backup_root/notification-gate.XXXXXX")"; then
-            err "failed to create a safe backup location for $stale_helper"
+    local backup="$TARGET_OPENCODE/.settings-opencode-retired/$(date +%Y%m%d-%H%M%S)-$$"
+    local rel src dst
+    for rel in "${RETIRED_OPENCODE_PATHS[@]}"; do
+        src="$TARGET_OPENCODE/$rel"
+        [ -e "$src" ] || [ -L "$src" ] || continue
+        dst="$backup/$rel"
+        mkdir -p "$(dirname "$dst")"
+        chmod 700 "$backup"
+        if ! mv "$src" "$dst"; then
+            err "failed to retire $src"
             return 1
         fi
-        backup_path="$backup_dir/notification-gate.backup"
-        if ! mv "$stale_helper" "$backup_path"; then
-            rmdir "$backup_dir" 2>/dev/null || true
-            err "failed to preserve stale notification helper at $stale_helper"
-            return 1
-        fi
-        if [ -L "$backup_path" ]; then
-            warn "preserved symbolic notification helper outside plugin discovery at $backup_path"
-        else
-            warn "preserved modified notification helper outside plugin discovery at $backup_path"
-        fi
-        return 0
-    fi
-
-    err "stale notification helper is not a regular file or symbolic link: $stale_helper"
-    return 1
+        ok "retired $rel (kept at $dst)"
+    done
 }
 
 # Copy src/ into dst/ but protect personal config files from being overwritten
@@ -1840,7 +1833,7 @@ fi
 
 if [ "$SKIP_OPENCODE" != "1" ]; then
     install_repo_link
-    [ "$OPENCODE_TARGET_IS_SOURCE" = "1" ] || prune_stale_opencode_plugin_helpers
+    [ "$OPENCODE_TARGET_IS_SOURCE" = "1" ] || prune_retired_opencode_files
     if [ "$OPENCODE_TARGET_READY" = "1" ]; then
         if [ "$OPENCODE_TARGET_IS_SOURCE" = "1" ]; then
             info "source repo is the OpenCode target; dependency installation skipped"
