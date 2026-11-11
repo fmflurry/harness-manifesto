@@ -127,7 +127,7 @@ The text report, and the sanitised `docs/pr-reports/<branch-slug>.metrics.json` 
 | Review and fix rounds | `review_round` and `fix_round` events. If those events are absent, the report uses `review_rounds` or `fix_iterations` from a later outcome |
 | Tokens | Sum of `session_end` and `subagent_stop` totals. `n/a` when none of those events carried a number |
 
-`N/A` in the sessions, failure, guard, review, and fix cells means the value was not collected. `n/a` on wall, active, and tokens still means the host sent no number. The JSON uses `null` for `N/A` and a number, including `0`, when the value was collected.
+`N/A` in the sessions, failure, guard, review, fix, tool, skill, and agent cells means the value was not collected. `n/a` on wall, active, and tokens still means the host sent no number. The JSON uses `null` for `N/A` and a number, including `0`, when the value was collected.
 
 An event recorded on `master`, `main`, `HEAD`, or `unknown` is counted on a feature branch when that session has a `session_bind` for the branch, or when a commit on the branch carries a `Session-Id:` trailer for that same session. The trailer is read from local `git log` between the merge base (`origin/main`, `origin/master`, `main`, or `master`) and the branch. A trailer with no KPI event does not create a session. GitHub authors and model names are not sessions.
 

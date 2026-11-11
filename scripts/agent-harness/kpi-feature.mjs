@@ -301,7 +301,7 @@ function summarise(selected, gapMin, hints) {
   for (const [agent, count] of spawns) {
     if (!calls.has(agent)) calls.set(agent, count);
   }
-  if (!calls.has('main')) calls.set('main', 0);
+  if (collected && !calls.has('main')) calls.set('main', 0);
 
   times.sort((a, b) => a.at - b.at);
   let wall = null;
@@ -398,6 +398,11 @@ function listText(rows, field) {
   return rows.map((row) => `${row.name} ${row[field]}`).join(', ');
 }
 
+function detailText(report, rows, field) {
+  if (report.coverage?.collected === false) return 'N/A';
+  return listText(rows, field);
+}
+
 export function formatActive(report) {
   if (report.active_ms == null) return 'n/a';
   return `${formatDuration(report.active_ms)} (gaps over ${report.idle_gap_min}m excluded)`;
@@ -421,10 +426,10 @@ export function formatFeatureText(report) {
     `active   ${formatActive(report)}`,
     `sessions ${sessionText(report)}`,
     `tokens   ${report.tokens == null ? 'n/a' : String(report.tokens)}`,
-    `tools    ${listText(report.tools, 'count')}`,
-    `skills   ${listText(report.skills, 'count')}`,
-    `agents   ${listText(report.agents, 'calls')}`,
-    `failures ${countText(report.tool_failures)}${report.failure_tools.length ? ` (${listText(report.failure_tools, 'count')})` : ''}`,
+    `tools    ${detailText(report, report.tools, 'count')}`,
+    `skills   ${detailText(report, report.skills, 'count')}`,
+    `agents   ${detailText(report, report.agents, 'calls')}`,
+    `failures ${countText(report.tool_failures)}${report.failure_tools.length && report.coverage?.collected !== false ? ` (${listText(report.failure_tools, 'count')})` : ''}`,
     `durations ${duration}`,
     `guards   ${countText(report.guard_blocks)}${guardDetail ? ` (${guardDetail})` : ''}`,
     `review   ${countText(report.review_rounds)}`,
@@ -461,10 +466,10 @@ export function metricsPanelHtml(report) {
 <h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
 <p style="margin:0 0 10px;color:#57534e">${escapeHtml(featureLine(report))}. ${escapeHtml(statusLines(report).join('. '))}.</p>
 <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1">${body}</table>
-<p style="margin:10px 0 0">Tools: ${escapeHtml(listText(report.tools, 'count'))}</p>
-<p style="margin:4px 0 0">Skills: ${escapeHtml(listText(report.skills, 'count'))}</p>
-<p style="margin:4px 0 0">Agents: ${escapeHtml(listText(report.agents, 'calls'))}</p>
-<p style="margin:4px 0 0">Failure tools: ${escapeHtml(listText(report.failure_tools, 'count'))}. Durations: ${escapeHtml(duration)}.</p>
+<p style="margin:10px 0 0">Tools: ${escapeHtml(detailText(report, report.tools, 'count'))}</p>
+<p style="margin:4px 0 0">Skills: ${escapeHtml(detailText(report, report.skills, 'count'))}</p>
+<p style="margin:4px 0 0">Agents: ${escapeHtml(detailText(report, report.agents, 'calls'))}</p>
+<p style="margin:4px 0 0">Failure tools: ${escapeHtml(detailText(report, report.failure_tools, 'count'))}. Durations: ${escapeHtml(duration)}.</p>
 </section>`;
 }
 
