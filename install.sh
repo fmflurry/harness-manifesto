@@ -413,6 +413,7 @@ copy_tree() {
         --exclude='__tests__' \
         --exclude='__mocks__' \
         "$src/" "$dst/"
+    chmod_shebang_scripts "$dst"
 }
 
 ensure_opencode_runtime_dirs() {
@@ -511,6 +512,7 @@ copy_tree_with_seed() {
         --include='*.local.json' \
         --exclude='*' \
         "$src/" "$dst/"
+    chmod_shebang_scripts "$dst"
 }
 
 # Claude Code stores conversation and runtime data alongside configuration. Never
@@ -564,7 +566,7 @@ copy_claude_allowlist() {
 localize_claude_settings_hooks() {
     local settings_file="$1" tmp grep_status
 
-    if grep -qE '"~/\.claude/|bash ~/\.claude/' "$settings_file"; then
+    if grep -qE '"~/\.claude/|bash ~/\.claude/hooks/|bash \./\.claude/hooks/' "$settings_file"; then
         :
     else
         grep_status=$?
@@ -575,9 +577,26 @@ localize_claude_settings_hooks() {
     info "rewriting hook paths for --local mode"
     tmp="$(mktemp "${settings_file}.XXXXXX")"
     cp -p "$settings_file" "$tmp"
-    sed 's|"~/.claude/|"./.claude/|g; s|bash ~/.claude/|bash ./.claude/|g' "$settings_file" > "$tmp"
+    sed \
+        -e 's|bash ~/.claude/hooks/\([^"\\]*\.sh\)|bash \\"$CLAUDE_PROJECT_DIR/.claude/hooks/\1\\"|g' \
+        -e 's|bash \./\.claude/hooks/\([^"\\]*\.sh\)|bash \\"$CLAUDE_PROJECT_DIR/.claude/hooks/\1\\"|g' \
+        -e 's|"~/.claude/|"./.claude/|g' \
+        "$settings_file" > "$tmp"
     mv "$tmp" "$settings_file"
     ok "hook paths localized in $settings_file"
+}
+
+# rsync keeps the source mode. A shebang script checked in without +x would
+# install unrunnable, so the copy sets the bit from the shebang itself.
+chmod_shebang_scripts() {
+    local root="$1" file first
+    [ -d "$root" ] || return 0
+    while IFS= read -r -d '' file; do
+        IFS= read -r first < "$file" || continue
+        case "$first" in
+            '#!'*) chmod +x "$file" ;;
+        esac
+    done < <(find "$root" -type f ! -path '*/node_modules/*' -print0)
 }
 
 # Sync the canonical skill union (root skills/ ∪ .claude/skills/, root wins)
@@ -1412,7 +1431,8 @@ merge_agent_harness_settings() {
     local mod_abs="$mod_dir"
     local mod_mode="global"
     if [ "$LOCAL_MODE" = "1" ]; then
-        hooks_dir="./.claude/hooks"
+        # Literal $CLAUDE_PROJECT_DIR: Claude expands it when the hook runs.
+        hooks_dir='$CLAUDE_PROJECT_DIR/.claude/hooks'
         mod_dir="./.claude/mods/autonomy-status"
         mod_mode="local"
     fi
@@ -1423,13 +1443,53 @@ merge_agent_harness_settings() {
     local managed_hooks f
     managed_hooks="$(for f in "$REPO_DIR"/.claude/hooks/*.sh; do basename "$f" .sh; done | jq -Rsc 'split("\n") | map(select(. != ""))')"
     if ! jq --argjson managed "$managed_hooks" --arg h "$hooks_dir" --arg mod "$mod_dir" --arg modAbs "$mod_abs" --arg modTilde "~/.claude/mods/autonomy-status" --arg mode "$mod_mode" '
-        def bashify: (.command? // "") as $c | if ($c | test("^[^ ]*\\.claude/hooks/[^ /]+\\.sh$")) and ($managed | index($c | split("/") | last | sub("\\.sh$"; ""))) then .command = "bash " + $c else . end;
+        def bashify: (.command? // "") as $c | if ($c | test("^[^ ]*\\.claude/hooks/[^ /\"]+\\.sh$")) and (($managed | index($c | split("/") | last | sub("\\.sh$"; ""))) != null) then .command = "bash " + $c else . end;
+        def managed_name($c):
+          if ($c | type) != "string" then null
+          elif ($c | test("\\.claude/hooks/[A-Za-z0-9_.-]+\\.sh\"?$")) then
+            ($c | capture("\\.claude/hooks/(?<name>[A-Za-z0-9_.-]+)\\.sh\"?$").name) as $name
+            | if ($managed | index($name)) != null then $name else null end
+          else null end;
+        def project_command($name): "bash \"" + $h + "/" + $name + ".sh\"";
+        def canon($c):
+          managed_name($c) as $name
+          | if $name == null then
+              (({command: $c} | bashify).command)
+            elif $mode == "local" then project_command($name)
+            elif ($c | startswith("bash ")) then $c
+            else "bash " + $c end;
+        def quoted($cmd):
+          if $mode == "local" and ($cmd | startswith("bash ")) and (($cmd | contains("\"")) | not) then
+            "bash \"" + ($cmd | sub("^bash "; "")) + "\""
+          else $cmd end;
+        def rewrite_groups($groups):
+          reduce $groups[] as $group ({seen: {}, acc: []};
+            ($group.matcher // "") as $m
+            | .bucket = []
+            | reduce ($group.hooks // [])[] as $hook (.;
+                (canon($hook.command // "")) as $cmd
+                | (managed_name($cmd)) as $name
+                | if $name != null and .seen[$m + "\u0000" + $name] then .
+                  else
+                    (if $name != null then .seen[$m + "\u0000" + $name] = true else . end)
+                    | .bucket += [($hook | .command = $cmd)]
+                  end
+              )
+            | if (.bucket | length) == 0 then del(.bucket)
+              else (.bucket) as $kept | .acc += [($group | .hooks = $kept)] | del(.bucket)
+              end
+          ) | .acc;
+        def has_managed($ev; $m; $name):
+          any(.hooks[$ev][]?; ((.matcher // "") == $m) and any(.hooks[]?; managed_name(.command // "") == $name));
         def addhook($ev; $m; $cmd):
-            if ([.hooks[$ev][]?.hooks[]?.command] | index($cmd)) then .
+          (quoted($cmd)) as $final
+          | (managed_name($final)) as $name
+          | if $name != null and has_managed($ev; $m; $name) then .
+            elif ([.hooks[$ev][]?.hooks[]?.command] | index($final)) != null then .
             else .hooks[$ev] = ((.hooks[$ev] // []) + [
-                (if $m == "" then {} else {matcher: $m} end) + {hooks: [{type: "command", command: $cmd}]}
+              (if $m == "" then {} else {matcher: $m} end) + {hooks: [{type: "command", command: $final}]}
             ]) end;
-        .hooks = ((.hooks // {}) | with_entries(.value |= (if type == "array" then map(if (.hooks | type) == "array" then .hooks |= map(bashify) else . end) else . end)))
+        .hooks = ((.hooks // {}) | with_entries(if (.value | type) == "array" then .value = rewrite_groups(.value) else . end))
         | addhook("SessionStart"; ""; "bash " + $h + "/commit-provenance.sh")
         | addhook("SessionStart"; ""; "bash " + $h + "/cloud-session-bootstrap.sh")
         | addhook("SessionStart"; ""; "bash " + $h + "/autonomy-context.sh")
