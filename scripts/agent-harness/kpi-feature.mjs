@@ -10,6 +10,23 @@ export const TOP_N = 8;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOSTS = ['cursor', 'claude', 'opencode'];
 const SPAWN_TOOL = /^(task|agent)$/i;
+const ACTIVITY = new Set(['tool_call', 'tool_result', 'session_start', 'session_end', 'subagent_spawn', 'subagent_stop']);
+const BASE_BRANCH = new Set(['master', 'main', 'HEAD', 'unknown', '']);
+const TRAILER = /^Session-Id:[ \t]*([A-Za-z0-9._:@+-]{1,200})[ \t]*$/gm;
+const COVERAGE_REASONS = new Set([
+  'log missing', 'capture disabled', 'jq missing', 'no session events for branch', 'invalid JSON lines', 'empty selection',
+]);
+const COVERAGE_WARNINGS = new Set([
+  'log absent', 'jq missing', 'capture disabled', 'empty selection', 'invalid JSON lines', 'no session events for branch',
+]);
+const WARNING_TEXT = {
+  'log absent': 'kpi feature: warning: log absent',
+  'jq missing': 'kpi feature: warning: jq missing',
+  'capture disabled': 'kpi feature: warning: capture disabled (AGENT_HARNESS_KPI=0)',
+  'empty selection': 'kpi feature: warning: empty selection',
+  'invalid JSON lines': 'kpi feature: warning: invalid JSON lines',
+  'no session events for branch': 'kpi feature: warning: no session events for branch',
+};
 const LEAK = /(?:^|[^A-Za-z0-9._-])(?:\/(?:home|Users|opt|var|tmp|private|workspace)\/|~\/|[A-Za-z]:\\)|https?:\/\//i;
 
 export function leaksPath(text) {
@@ -115,11 +132,47 @@ function callOwner(event, children) {
   return 'main';
 }
 
+function isBaseBranch(branch) {
+  return branch == null || BASE_BRANCH.has(branch);
+}
+
+function reattribute(rows, options) {
+  const bindings = new Map();
+  for (const event of rows) {
+    if (event.kind !== 'session_bind') continue;
+    const session = cleanSession(event.session_id);
+    const boundRepo = cleanRepo(event.repo);
+    const boundBranch = cleanBranch(event.branch);
+    if (!session || !boundRepo || !boundBranch || isBaseBranch(boundBranch)) continue;
+    const at = Date.parse(event.ts ?? '');
+    const prev = bindings.get(session);
+    if (!prev || (Number.isFinite(at) ? at : 0) >= prev.at) {
+      bindings.set(session, { repo: boundRepo, branch: boundBranch, at: Number.isFinite(at) ? at : 0 });
+    }
+  }
+  const trailers = new Set(Array.isArray(options.trailerSessions) ? options.trailerSessions : []);
+  const targetBranch = cleanBranch(options.branch);
+  const targetRepo = cleanRepo(options.repo);
+  return rows.map((event) => {
+    if (event.kind === 'session_bind') return event;
+    const session = cleanSession(event.session_id);
+    if (!session || !isBaseBranch(event.branch)) return event;
+    const repo = cleanRepo(event.repo);
+    const bound = bindings.get(session);
+    if (bound && (!repo || bound.repo === repo)) return { ...event, repo: bound.repo, branch: bound.branch };
+    if (trailers.has(session) && targetBranch && !isBaseBranch(targetBranch) && (!targetRepo || !repo || targetRepo === repo)) {
+      return { ...event, repo: targetRepo || repo, branch: targetBranch };
+    }
+    return event;
+  });
+}
+
 export function selectFeature(events, options = {}) {
   const repo = options.repo ?? null;
   const requestedPr = Number.isInteger(options.pr) ? options.pr : null;
   let branch = options.branch ?? null;
   let rows = events.filter((event) => event && typeof event === 'object' && !Array.isArray(event));
+  rows = reattribute(rows, { ...options, branch });
   if (repo) rows = rows.filter((event) => event.repo === repo);
   if (!branch && requestedPr != null) {
     const found = [];
@@ -150,7 +203,35 @@ export function selectFeature(events, options = {}) {
   return { repo, branch, pr, prs, events: rows };
 }
 
-function summarise(selected, gapMin) {
+function coverageOf(collected, hints, eventCount) {
+  const h = {
+    logMissing: false,
+    jqMissing: false,
+    captureDisabled: false,
+    invalidLines: 0,
+    ...hints,
+  };
+  const warnings = [];
+  if (h.logMissing) warnings.push('log absent');
+  if (h.jqMissing) warnings.push('jq missing');
+  if (h.captureDisabled) warnings.push('capture disabled');
+  if (h.invalidLines > 0) warnings.push('invalid JSON lines');
+  if (!h.logMissing && eventCount === 0 && !(h.invalidLines > 0)) warnings.push('empty selection');
+  if (!collected && eventCount > 0) warnings.push('no session events for branch');
+  const blocked = Boolean(h.logMissing || h.jqMissing || h.captureDisabled);
+  let reason = null;
+  if (!collected || blocked) {
+    if (h.logMissing) reason = 'log missing';
+    else if (h.invalidLines > 0 && eventCount === 0) reason = 'invalid JSON lines';
+    else if (h.jqMissing) reason = 'jq missing';
+    else if (h.captureDisabled) reason = 'capture disabled';
+    else if (eventCount === 0) reason = 'empty selection';
+    else reason = 'no session events for branch';
+  }
+  return { collected, reason, warnings, blocked };
+}
+
+function summarise(selected, gapMin, hints) {
   const events = selected.events;
   const children = childSessions(events);
   const tools = new Map();
@@ -165,6 +246,7 @@ function summarise(selected, gapMin) {
   let guardCount = 0;
   let review = 0;
   let fix = 0;
+  let collected = false;
   let durationSum = 0;
   let durationN = 0;
   let durationMax = 0;
@@ -177,7 +259,10 @@ function summarise(selected, gapMin) {
     if (Number.isFinite(at)) times.push({ at, ts: cleanStamp(event.ts) });
     const host = cleanHost(event.tool);
     const session = cleanSession(event.session_id);
-    if (host && session) sessions.get(host).add(session);
+    if (host && session && ACTIVITY.has(event.kind)) {
+      sessions.get(host).add(session);
+      collected = true;
+    }
     if (event.kind === 'tool_call') {
       bump(tools, cleanTool(event.tool_name));
       bump(skills, cleanSkill(event.skill));
@@ -216,7 +301,7 @@ function summarise(selected, gapMin) {
   for (const [agent, count] of spawns) {
     if (!calls.has(agent)) calls.set(agent, count);
   }
-  if (!calls.has('main')) calls.set('main', 0);
+  if (collected && !calls.has('main')) calls.set('main', 0);
 
   times.sort((a, b) => a.at - b.at);
   let wall = null;
@@ -239,9 +324,10 @@ function summarise(selected, gapMin) {
   const repo = cleanRepo(selected.repo);
   const branch = cleanBranch(selected.branch);
   const pr = int(selected.pr, 1e9 - 1);
-  const partial = events.length === 0 || !repo || !branch || times.length === 0;
+  const coverage = coverageOf(collected, hints, events.length);
+  const partial = !collected || !repo || !branch || coverage.blocked;
   const sessionCounts = {};
-  for (const host of HOSTS) sessionCounts[host] = sessions.get(host).size;
+  for (const host of HOSTS) sessionCounts[host] = collected ? sessions.get(host).size : null;
   const agents = [...calls.entries()]
     .map(([name, count]) => ({ name, calls: count }))
     .sort((a, b) => {
@@ -262,27 +348,28 @@ function summarise(selected, gapMin) {
     tools: topCounts(tools),
     skills: topCounts(skills),
     agents,
-    tool_failures: failureCount,
+    tool_failures: collected ? failureCount : null,
     failure_tools: topCounts(failures),
     duration_ms: durationN > 0
       ? { n: durationN, sum: durationSum, mean: Math.round(durationSum / durationN), max: durationMax }
       : null,
-    guard_blocks: guardCount,
+    guard_blocks: events.length ? guardCount : null,
     guards: Object.fromEntries([...guards.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
-    review_rounds: review,
-    fix_rounds: fix,
+    review_rounds: events.length ? review : null,
+    fix_rounds: events.length ? fix : null,
     tokens: tokenByKey.size > 0 ? tokenSum : null,
     tokens_known: tokenByKey.size,
     events: events.length,
     first_ts: times.length ? times[0].ts : null,
     last_ts: times.length ? times[times.length - 1].ts : null,
     partial,
+    coverage: { collected: coverage.collected, reason: coverage.reason, warnings: coverage.warnings },
   };
 }
 
 export function aggregateFeature(events, options = {}) {
   const gapMin = options.gapMin ?? IDLE_GAP_MIN;
-  return summarise(selectFeature(events, options), gapMin);
+  return summarise(selectFeature(events, options), gapMin, options.hints);
 }
 
 export function formatMs(ms) {
@@ -291,14 +378,29 @@ export function formatMs(ms) {
   return formatDuration(ms);
 }
 
+function countText(value) {
+  return value == null ? 'N/A' : String(value);
+}
+
 function sessionText(report) {
-  const parts = HOSTS.map((host) => `${host} ${report.sessions[host] ?? 0}`);
-  return parts.join(', ');
+  if (report.coverage?.collected === false) return 'N/A';
+  return HOSTS.map((host) => `${host} ${report.sessions[host] ?? 0}`).join(', ');
+}
+
+function statusLines(report) {
+  const lines = [`Status: ${report.partial ? 'partial' : 'complete'}`];
+  if (report.coverage?.reason) lines.push(`Coverage: ${report.coverage.reason}`);
+  return lines;
 }
 
 function listText(rows, field) {
   if (!rows.length) return 'none';
   return rows.map((row) => `${row.name} ${row[field]}`).join(', ');
+}
+
+function detailText(report, rows, field) {
+  if (report.coverage?.collected === false) return 'N/A';
+  return listText(rows, field);
 }
 
 export function formatActive(report) {
@@ -324,14 +426,14 @@ export function formatFeatureText(report) {
     `active   ${formatActive(report)}`,
     `sessions ${sessionText(report)}`,
     `tokens   ${report.tokens == null ? 'n/a' : String(report.tokens)}`,
-    `tools    ${listText(report.tools, 'count')}`,
-    `skills   ${listText(report.skills, 'count')}`,
-    `agents   ${listText(report.agents, 'calls')}`,
-    `failures ${report.tool_failures}${report.failure_tools.length ? ` (${listText(report.failure_tools, 'count')})` : ''}`,
+    `tools    ${detailText(report, report.tools, 'count')}`,
+    `skills   ${detailText(report, report.skills, 'count')}`,
+    `agents   ${detailText(report, report.agents, 'calls')}`,
+    `failures ${countText(report.tool_failures)}${report.failure_tools.length && report.coverage?.collected !== false ? ` (${listText(report.failure_tools, 'count')})` : ''}`,
     `durations ${duration}`,
-    `guards   ${report.guard_blocks}${guardDetail ? ` (${guardDetail})` : ''}`,
-    `review   ${report.review_rounds}`,
-    `fix      ${report.fix_rounds}`,
+    `guards   ${countText(report.guard_blocks)}${guardDetail ? ` (${guardDetail})` : ''}`,
+    `review   ${countText(report.review_rounds)}`,
+    `fix      ${countText(report.fix_rounds)}`,
     `events   ${report.events}`,
     `partial  ${report.partial ? 'yes' : 'no'}`,
     '',
@@ -348,10 +450,10 @@ export function metricsPanelHtml(report) {
     ['Active', formatActive(report)],
     ['Sessions', sessionText(report)],
     ['Tokens', report.tokens == null ? 'n/a' : String(report.tokens)],
-    ['Tool failures', String(report.tool_failures)],
-    ['Guard blocks', String(report.guard_blocks)],
-    ['Review rounds', String(report.review_rounds)],
-    ['Fix rounds', String(report.fix_rounds)],
+    ['Tool failures', countText(report.tool_failures)],
+    ['Guard blocks', countText(report.guard_blocks)],
+    ['Review rounds', countText(report.review_rounds)],
+    ['Fix rounds', countText(report.fix_rounds)],
   ];
   const body = rows.map(([name, value]) => (
     `<tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">${escapeHtml(name)}</th>`
@@ -362,12 +464,12 @@ export function metricsPanelHtml(report) {
     : 'n/a';
   return `<section id="kpi-metrics" style="margin-top:28px">
 <h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
-<p style="margin:0 0 10px;color:#57534e">${escapeHtml(featureLine(report))}. Status: ${report.partial ? 'partial' : 'complete'}.</p>
+<p style="margin:0 0 10px;color:#57534e">${escapeHtml(featureLine(report))}. ${escapeHtml(statusLines(report).join('. '))}.</p>
 <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1">${body}</table>
-<p style="margin:10px 0 0">Tools: ${escapeHtml(listText(report.tools, 'count'))}</p>
-<p style="margin:4px 0 0">Skills: ${escapeHtml(listText(report.skills, 'count'))}</p>
-<p style="margin:4px 0 0">Agents: ${escapeHtml(listText(report.agents, 'calls'))}</p>
-<p style="margin:4px 0 0">Failure tools: ${escapeHtml(listText(report.failure_tools, 'count'))}. Durations: ${escapeHtml(duration)}.</p>
+<p style="margin:10px 0 0">Tools: ${escapeHtml(detailText(report, report.tools, 'count'))}</p>
+<p style="margin:4px 0 0">Skills: ${escapeHtml(detailText(report, report.skills, 'count'))}</p>
+<p style="margin:4px 0 0">Agents: ${escapeHtml(detailText(report, report.agents, 'calls'))}</p>
+<p style="margin:4px 0 0">Failure tools: ${escapeHtml(detailText(report, report.failure_tools, 'count'))}. Durations: ${escapeHtml(duration)}.</p>
 </section>`;
 }
 
@@ -408,10 +510,10 @@ export function formatMetricsMarkdown(report) {
     ['Active', formatActive(report)],
     ['Sessions', sessionText(report)],
     ['Tokens', report.tokens == null ? 'n/a' : String(report.tokens)],
-    ['Tool failures', String(report.tool_failures)],
-    ['Guard blocks', String(report.guard_blocks)],
-    ['Review rounds', String(report.review_rounds)],
-    ['Fix rounds', String(report.fix_rounds)],
+    ['Tool failures', countText(report.tool_failures)],
+    ['Guard blocks', countText(report.guard_blocks)],
+    ['Review rounds', countText(report.review_rounds)],
+    ['Fix rounds', countText(report.fix_rounds)],
   ];
   const lines = rows.map(([name, value]) => `| ${name} | ${value} |`);
   return [
@@ -421,7 +523,7 @@ export function formatMetricsMarkdown(report) {
     '| --- | --- |',
     ...lines,
     '',
-    `Status: ${report.partial ? 'partial' : 'complete'}`,
+    ...statusLines(report),
     '',
   ].join('\n');
 }
@@ -441,6 +543,49 @@ function gitText(args, cwd) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) return '';
   return result.stdout.trim();
+}
+
+export function sessionIdsOnBranch(root, branch) {
+  if (!root || !cleanBranch(branch)) return [];
+  const bases = ['origin/main', 'origin/master', 'main', 'master'];
+  let range = '';
+  for (const base of bases) {
+    const mb = gitText(['merge-base', base, branch], root);
+    if (mb && /^[0-9a-f]{7,64}$/i.test(mb)) {
+      range = `${mb}..${branch}`;
+      break;
+    }
+  }
+  if (!range) return [];
+  const text = gitText(['log', '--format=%B%x1e', range], root);
+  const ids = [];
+  const seen = new Set();
+  for (const match of text.matchAll(TRAILER)) {
+    const id = match[1];
+    if (id === 'unknown' || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function jqAvailable() {
+  const result = spawnSync('jq', ['--version'], { encoding: 'utf8' });
+  return result.status === 0;
+}
+
+function countInvalidLines(raw) {
+  let invalid = 0;
+  for (const line of String(raw).split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      JSON.parse(trimmed);
+    } catch {
+      invalid += 1;
+    }
+  }
+  return invalid;
 }
 
 export function detectRepo(cwd = process.cwd()) {
@@ -523,10 +668,35 @@ function namedRows(list, field, clean) {
   return out.slice(0, TOP_N);
 }
 
+function normaliseCoverage(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { collected: true, reason: null, warnings: [] };
+  }
+  const collected = value.collected !== false;
+  const reason = typeof value.reason === 'string' && COVERAGE_REASONS.has(value.reason) ? value.reason : null;
+  const warnings = Array.isArray(value.warnings)
+    ? value.warnings.filter((item) => typeof item === 'string' && COVERAGE_WARNINGS.has(item))
+    : [];
+  return { collected, reason, warnings };
+}
+
+function sessionCount(value, collected) {
+  if (!collected) return value == null ? null : int(value, 1e12);
+  const n = int(value, 1e12);
+  return n == null ? 0 : n;
+}
+
+function nullableCount(value, collected) {
+  if (!collected && value == null) return null;
+  const n = int(value, 1e12);
+  return n == null ? (collected ? 0 : null) : n;
+}
+
 export function copyReport(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('metrics must be a JSON object');
   const feature = input.feature && typeof input.feature === 'object' ? input.feature : {};
   const sessions = input.sessions && typeof input.sessions === 'object' ? input.sessions : {};
+  const coverage = normaliseCoverage(input.coverage);
   const duration = input.duration_ms && typeof input.duration_ms === 'object' ? input.duration_ms : null;
   const guardsIn = input.guards && typeof input.guards === 'object' ? input.guards : {};
   const guards = {};
@@ -548,14 +718,14 @@ export function copyReport(input) {
     active_ms: finite(input.active_ms, 365 * DAY_MS),
     idle_gap_min: int(input.idle_gap_min, 1440) || IDLE_GAP_MIN,
     sessions: {
-      cursor: int(sessions.cursor, 1e12) || 0,
-      claude: int(sessions.claude, 1e12) || 0,
-      opencode: int(sessions.opencode, 1e12) || 0,
+      cursor: sessionCount(sessions.cursor, coverage.collected),
+      claude: sessionCount(sessions.claude, coverage.collected),
+      opencode: sessionCount(sessions.opencode, coverage.collected),
     },
     tools: namedRows(input.tools, 'count', cleanTool),
     skills: namedRows(input.skills, 'count', cleanSkill),
     agents: namedRows(input.agents, 'calls', cleanAgent),
-    tool_failures: int(input.tool_failures, 1e12) || 0,
+    tool_failures: nullableCount(input.tool_failures, coverage.collected),
     failure_tools: namedRows(input.failure_tools, 'count', cleanTool),
     duration_ms: durationN > 0 ? {
       n: durationN,
@@ -563,16 +733,17 @@ export function copyReport(input) {
       mean: finite(duration.mean, DAY_MS) || 0,
       max: finite(duration.max, DAY_MS) || 0,
     } : null,
-    guard_blocks: int(input.guard_blocks, 1e12) || 0,
+    guard_blocks: nullableCount(input.guard_blocks, coverage.collected),
     guards,
-    review_rounds: int(input.review_rounds, 10000) || 0,
-    fix_rounds: int(input.fix_rounds, 10000) || 0,
+    review_rounds: nullableCount(input.review_rounds, coverage.collected),
+    fix_rounds: nullableCount(input.fix_rounds, coverage.collected),
     tokens: input.tokens == null ? null : int(input.tokens, 1e12),
     tokens_known: int(input.tokens_known, 1e12) || 0,
     events: int(input.events, 1e12) || 0,
     first_ts: cleanStamp(input.first_ts),
     last_ts: cleanStamp(input.last_ts),
-    partial: input.partial === true,
+    partial: input.partial === true || coverage.collected === false,
+    coverage,
   };
 }
 
@@ -620,12 +791,33 @@ export function featureMain(argv, io = {}) {
   if (opts.branch != null && !cleanBranch(opts.branch)) throw new Error('--branch must be a branch name');
   if (opts.pr != null && !/^[1-9][0-9]{0,8}$/.test(String(opts.pr))) throw new Error('--pr must be a pull request number');
   const pr = opts.pr == null ? null : Number(opts.pr);
-  const detected = (!opts.repo || !opts.branch || opts.metrics === undefined) ? detect() : { root: null, repo: null, branch: null };
+  const detected = detect();
   const repo = opts.repo ? cleanRepo(opts.repo) : detected.repo;
   const branch = opts.branch ? cleanBranch(opts.branch) : detected.branch;
   const log = opts.log ?? defaultLog();
-  const raw = log && fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
-  const report = aggregateFeature(readEvents(raw), { repo, branch, pr, gapMin });
+  const logMissing = !log || !fs.existsSync(log);
+  const raw = logMissing ? '' : fs.readFileSync(log, 'utf8');
+  const invalidLines = logMissing ? 0 : countInvalidLines(raw);
+  const trailerSessions = detected.root && detected.repo && repo && detected.repo === repo && branch
+    ? sessionIdsOnBranch(detected.root, branch)
+    : [];
+  const report = aggregateFeature(readEvents(raw), {
+    repo,
+    branch,
+    pr,
+    gapMin,
+    trailerSessions,
+    hints: {
+      logMissing,
+      jqMissing: !jqAvailable(),
+      captureDisabled: process.env.AGENT_HARNESS_KPI === '0',
+      invalidLines,
+    },
+  });
+  for (const warning of report.coverage.warnings) {
+    const line = WARNING_TEXT[warning];
+    if (line) stderr(`${line}\n`);
+  }
   const body = storedReport(report);
   if (opts.metrics !== null) {
     let dest = opts.metricsIn || null;

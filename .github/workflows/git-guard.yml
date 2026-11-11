@@ -59,11 +59,14 @@ jobs:
       - name: Guard tests under the system bash 3.2
         if: runner.os == 'macOS'
         run: GUARD_BASH=/bin/bash RUN_ONLY=guard bash scripts/agent-harness/test/run.sh
-      # Windows runs only the guard subset: its guard job alone takes about 13 minutes, and the rest of the suite's
-      # fixtures (worktrees, symlinks, POSIX paths) have never been made to run under Git Bash.
+      # Windows runs the guard subset plus the KPI worktree file. The rest of the suite's fixtures
+      # (symlinks, POSIX paths) have never been made to run under Git Bash, and the guard job is already long.
       - name: Full harness suite
         if: runner.os != 'Windows'
         run: bash scripts/agent-harness/test/run.sh
+      - name: KPI worktree attribution
+        if: runner.os == 'Windows'
+        run: node --test scripts/agent-harness/test/kpi-worktree.test.mjs
       - name: Hook tests
         run: bash scripts/cursor-plugin/test-hooks.sh
       - name: Guard phase profile (informational)

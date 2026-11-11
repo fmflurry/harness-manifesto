@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  attributionOf,
   createKpiState,
   onMessageUpdated,
   onOpenCodeEvent,
@@ -10,6 +11,20 @@ import {
   sanitiseSkill,
   usageTokens,
 } from "./lib/kpi-capture.ts";
+
+test("shell attribution names the workdir and command without putting them in KPI args", () => {
+  const hint = attributionOf("bash", {
+    command: "git -C /wt status SUPER_SECRET",
+    workdir: "wt",
+  }, "/session");
+  assert.equal(hint.cwd, "/session/wt");
+  assert.match(hint.command, /git -C \/wt status/);
+  assert.equal(hint.file, "");
+  const file = attributionOf("read", { filePath: "/wt/README.md", note: "SUPER_SECRET" }, "/session");
+  assert.equal(file.file, "/wt/README.md");
+  assert.equal(file.command, "");
+  assert.equal(file.cwd, "/session");
+});
 
 test("usage sums input and output and ignores cache and reasoning", () => {
   assert.equal(usageTokens({

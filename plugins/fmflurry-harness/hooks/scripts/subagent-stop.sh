@@ -9,6 +9,9 @@
 
 INPUT=$(cat 2>/dev/null)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+case "$SESSION_ID" in
+  *'/'*|*'\\'*|*'..'*) exit 0 ;;
+esac
 
 # Resolve the notify scripts dir: installed location first, repo-relative
 # fallback last (so running out of the repo checkout still works).
@@ -21,7 +24,7 @@ done
 NOTIFY_LOG_SH="$NOTIFY_SCRIPTS_DIR/notify-log.sh"
 [ -f "$NOTIFY_LOG_SH" ] && source "$NOTIFY_LOG_SH"
 
-STATE="${NOTIFY_STATE_DIR:-${TMPDIR:-/tmp}/fmflurry-harness/state/notify}/$SESSION_ID"
+STATE="${NOTIFY_STATE_DIR:-$HOME/.fmflurry-harness/state/notify}/$SESSION_ID"
 INFLIGHT_DIR="$STATE/inflight"
 
 if [ -d "$INFLIGHT_DIR" ]; then

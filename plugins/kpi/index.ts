@@ -1,6 +1,7 @@
 import { Plugin } from "@opencode/plugin";
 import { emitKpi } from "../lib/kpi-emit.ts";
 import {
+  attributionOf,
   createKpiState,
   onOpenCodeEvent,
   onToolAfter,
@@ -34,13 +35,14 @@ export default Plugin.define({
 
     await ctx.tool.hook("execute.before", (event) => {
       try {
-        emit(
-          onToolBefore(
-            state,
-            { tool: event.tool, sessionID: event.sessionID, callID: event.id },
-            event.input,
-          ),
-        );
+        const hint = attributionOf(event.tool, event.input, directory);
+        for (const args of onToolBefore(
+          state,
+          { tool: event.tool, sessionID: event.sessionID, callID: event.id },
+          event.input,
+        )) {
+          if (args.length > 0) emitKpi(directory, args, hint);
+        }
       } catch {
         /* fail open */
       }
@@ -48,6 +50,7 @@ export default Plugin.define({
 
     await ctx.tool.hook("execute.after", (event) => {
       try {
+        const hint = attributionOf(event.tool, event.input, directory);
         const args = onToolAfter(
           state,
           {
@@ -58,7 +61,7 @@ export default Plugin.define({
           },
           event,
         );
-        if (args.length > 0) emitKpi(directory, args);
+        if (args.length > 0) emitKpi(directory, args, hint);
       } catch {
         /* fail open */
       }

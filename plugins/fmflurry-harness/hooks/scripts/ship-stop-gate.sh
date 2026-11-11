@@ -125,7 +125,7 @@ inflight_busy() {
   local sid dir now ttl mtime f
   sid="$(jq -r '.session_id // empty' <<<"${INPUT:-}" 2>/dev/null || true)"
   [[ "$sid" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] || return 1
-  dir="${NOTIFY_STATE_DIR:-${TMPDIR:-/tmp}/fmflurry-harness/state/notify}/$sid/inflight"
+  dir="${NOTIFY_STATE_DIR:-$HOME/.fmflurry-harness/state/notify}/$sid/inflight"
   [ -d "$dir" ] || return 1
   now="$(date +%s)"
   ttl="${NOTIFY_INFLIGHT_TTL_SECONDS:-900}"

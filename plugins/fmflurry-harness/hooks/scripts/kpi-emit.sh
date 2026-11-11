@@ -14,7 +14,18 @@ if [ "${AGENT_HARNESS_TEST:-}" = "1" ] && [ -z "${AGENT_HARNESS_KPI_LOG:-}" ]; t
 fi
 command -v jq >/dev/null 2>&1 || exit 0
 
-HARNESS_VERSION="${AGENT_HARNESS_VERSION:-0.4.45}"
+if [ "${AGENT_HARNESS_TEST:-}" != "1" ] && [ "${AGENT_HARNESS_KPI_DETACHED:-}" != "1" ]; then
+  export AGENT_HARNESS_KPI_DETACHED=1
+  if [ $# -eq 0 ]; then
+    _payload="$(cat 2>/dev/null || true)"
+    ( printf '%s' "$_payload" | "${BASH:-bash}" "$0" "$@" >/dev/null 2>&1 & )
+  else
+    ( "${BASH:-bash}" "$0" "$@" >/dev/null 2>&1 & )
+  fi
+  exit 0
+fi
+
+HARNESS_VERSION="${AGENT_HARNESS_VERSION:-0.4.46}"
 TRANSCRIPT_MAX=8388608
 
 log="${AGENT_HARNESS_KPI_LOG:-}"
@@ -73,22 +84,38 @@ read_variant() {
 }
 
 read_tool() {
+  local mode="${1:-0}"
   case "${AGENT_HARNESS_TOOL:-}" in
     opencode|claude|cursor) printf '%s' "$AGENT_HARNESS_TOOL"; return ;;
   esac
   if [ -n "${CURSOR_PLUGIN_ROOT:-}${CURSOR_PROJECT_DIR:-}${CURSOR_SESSION_ID:-}" ]; then
     printf cursor
-  elif [ -n "${OPENCODE:-}${OPENCODE_CLIENT:-}" ]; then
-    printf opencode
-  else
-    printf claude
+    return
   fi
+  if [ -n "${OPENCODE:-}${OPENCODE_CLIENT:-}${OPENCODE_SESSION_ID:-}" ]; then
+    printf opencode
+    return
+  fi
+  if [ "$mode" = 1 ]; then
+    if [ -n "${CLAUDE_PROJECT_DIR:-}${CLAUDE_CODE_ENTRYPOINT:-}${CLAUDE_SESSION_ID:-}" ]; then
+      printf claude
+      return
+    fi
+    printf unattributed
+    return
+  fi
+  printf claude
 }
 
 read_repo() {
-  local root remote slug
-  root="$(git rev-parse --show-toplevel 2>/dev/null)" || { printf unknown; return; }
-  remote="$(git -C "$root" remote get-url origin 2>/dev/null || true)"
+  local root remote slug dir
+  dir="${ATTR_DIR:-${PWD:-}}"
+  [ -n "$dir" ] || { printf unknown; return; }
+  git_q -C "$dir" rev-parse --show-toplevel || { printf unknown; return; }
+  root="$GIT_Q"
+  [ -n "$root" ] || { printf unknown; return; }
+  git_q -C "$root" remote get-url origin || true
+  remote="$GIT_Q"
   if [ -n "$remote" ]; then
     slug="$(printf '%s' "$remote" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#^[^@]+@##; s#:[0-9]+/#/#; s#\.git$##; s#^[^/:]+[:/]##')"
     if [[ "$slug" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
@@ -105,13 +132,358 @@ read_repo() {
 }
 
 read_branch() {
-  local b
-  b="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-  if [[ "$b" =~ ^[A-Za-z0-9._/-]+$ ]] && [ "${#b}" -le 200 ]; then
+  local b dir
+  dir="${ATTR_DIR:-${PWD:-}}"
+  [ -n "$dir" ] || { printf unknown; return; }
+  git_q -C "$dir" rev-parse --abbrev-ref HEAD || true
+  b="$GIT_Q"
+  if [[ "$b" =~ ^[A-Za-z0-9._/-]+$ ]] && [ "${#b}" -le 200 ] && [ "$b" != HEAD ]; then
     printf '%s' "$b"
   else
     printf unknown
   fi
+}
+
+session_from_env() {
+  local s
+  for s in \
+    "${HARNESS_SESSION_ID:-}" \
+    "${AGENT_HARNESS_SESSION_ID:-}" \
+    "${OPENCODE_SESSION_ID:-}" \
+    "${CURSOR_SESSION_ID:-}" \
+    "${CLAUDE_SESSION_ID:-}"
+  do
+    if [[ "$s" =~ ^[A-Za-z0-9._:@+-]+$ ]] && [ "${#s}" -le 200 ] && [ "$s" != unknown ] && [ "$s" != unattributed ]; then
+      printf '%s' "$s"
+      return 0
+    fi
+  done
+  return 1
+}
+
+note_mark() {
+  case ",$marked," in
+    *",$1,"*) ;;
+    *) marked="${marked:+$marked,}$1" ;;
+  esac
+}
+
+GIT_CALLS=0
+GIT_CALL_MAX=12
+GIT_Q=""
+
+git_q() {
+  local out pid rc watch child
+  GIT_Q=""
+  [ "${GIT_CALLS:-0}" -lt "$GIT_CALL_MAX" ] || return 1
+  GIT_CALLS=$((GIT_CALLS + 1))
+  out="$(mktemp 2>/dev/null)" || return 1
+  git "$@" >"$out" 2>/dev/null &
+  pid=$!
+  (
+    sleep 1
+    kill "$pid" 2>/dev/null
+  ) &
+  watch=$!
+  wait "$pid"
+  rc=$?
+  child="$(ps -e -o pid=,ppid= 2>/dev/null | awk -v p="$watch" '$2 == p { print $1 }')"
+  if [ -n "$child" ]; then
+    kill $child 2>/dev/null || true
+  fi
+  kill "$watch" 2>/dev/null || true
+  wait "$watch" 2>/dev/null || true
+  if [ "$rc" -eq 0 ]; then
+    IFS= read -r GIT_Q <"$out" || true
+  fi
+  rm -f "$out"
+  return "$rc"
+}
+
+path_is_abs() {
+  case "$1" in
+    /*|[A-Za-z]:[/\\]*|\\\\*|//*) return 0 ;;
+  esac
+  return 1
+}
+
+to_posix() {
+  local u
+  if command -v cygpath >/dev/null 2>&1; then
+    u="$(cygpath -u -- "$1" 2>/dev/null || cygpath -u "$1" 2>/dev/null || true)"
+    if [ -n "$u" ]; then
+      printf '%s' "$u"
+      return 0
+    fi
+  fi
+  printf '%s' "$1"
+}
+
+in_git() {
+  local d="$1"
+  [ -n "$d" ] || return 1
+  path_is_abs "$d" && d="$(to_posix "$d")"
+  [ -d "$d" ] || return 1
+  git_q -C "$d" rev-parse --is-inside-work-tree >/dev/null
+}
+
+abs_dir() {
+  local p="$1" base="$2" parent
+  [ -n "$p" ] || return 1
+  case "$p" in
+    *'$'*|*'`'*) return 1 ;;
+  esac
+  if path_is_abs "$p"; then
+    p="$(to_posix "$p")"
+  else
+    [ -n "$base" ] || return 1
+    p="$base/$p"
+  fi
+  if [ -d "$p" ]; then
+    (cd "$p" && pwd -P) 2>/dev/null
+    return
+  fi
+  if [ -e "$p" ]; then
+    parent="$(dirname "$p")"
+    (cd "$parent" && pwd -P) 2>/dev/null
+    return
+  fi
+  return 1
+}
+
+shell_sep() {
+  case "$1" in
+    '&&'|'||'|'|'|';'|'&'|'('|')'|'{'|'}') return 0 ;;
+  esac
+  return 1
+}
+
+segment_skips_abs() {
+  local idx="$1" k u left right has_git=0 has_c=0 last
+  left="$idx"
+  while [ "$left" -gt 0 ]; do
+    u="${CMD_TOKENS[$((left - 1))]}"
+    shell_sep "$u" && break
+    left=$((left - 1))
+  done
+  right="$idx"
+  last=$((${#CMD_TOKENS[@]} - 1))
+  while [ "$right" -lt "$last" ]; do
+    u="${CMD_TOKENS[$((right + 1))]}"
+    shell_sep "$u" && break
+    right=$((right + 1))
+  done
+  k="$left"
+  while [ "$k" -le "$right" ]; do
+    u="${CMD_TOKENS[$k]}"
+    [ "$u" = cd ] && return 0
+    case "$u" in
+      git|*/git) has_git=1 ;;
+      -C|--work-tree|-C=*|--work-tree=*) has_c=1 ;;
+    esac
+    k=$((k + 1))
+  done
+  [ "$has_git" -eq 1 ] && [ "$has_c" -eq 1 ]
+}
+
+split_shell() {
+  local s="$1" i=0 n c cur="" nxt
+  CMD_TOKENS=()
+  n=${#s}
+  while [ "$i" -lt "$n" ]; do
+    c="${s:i:1}"
+    if [ "$c" = "'" ] || [ "$c" = '"' ]; then
+      i=$((i + 1))
+      while [ "$i" -lt "$n" ] && [ "${s:i:1}" != "$c" ]; do
+        cur="$cur${s:i:1}"
+        i=$((i + 1))
+      done
+    elif [[ "$c" == [[:space:]] ]]; then
+      if [ -n "$cur" ]; then CMD_TOKENS+=("$cur"); cur=""; fi
+    elif [ "$c" = '&' ] || [ "$c" = '|' ] || [ "$c" = ';' ] || [ "$c" = '(' ] || [ "$c" = ')' ] || [ "$c" = '{' ] || [ "$c" = '}' ]; then
+      if [ -n "$cur" ]; then CMD_TOKENS+=("$cur"); cur=""; fi
+      nxt="${s:i+1:1}"
+      if [ "$c" = '&' ] && [ "$nxt" = '&' ]; then
+        CMD_TOKENS+=("&&")
+        i=$((i + 1))
+      elif [ "$c" = '|' ] && [ "$nxt" = '|' ]; then
+        CMD_TOKENS+=("||")
+        i=$((i + 1))
+      else
+        CMD_TOKENS+=("$c")
+      fi
+    else
+      cur="$cur$c"
+    fi
+    i=$((i + 1))
+  done
+  if [ -n "$cur" ]; then CMD_TOKENS+=("$cur"); fi
+}
+
+command_target() {
+  local cmd="$1" base="$2" s i t nxt sep cand gdir j u
+  local sim="" last="" line_has_git=0 git_hit=0 git_dir=""
+  local -a sim_stack=()
+  [ -n "$cmd" ] || return 1
+  [ "${#cmd}" -le 20000 ] || return 1
+  s="$(printf '%s' "$cmd" | sed -E 's/\$\([^)]*\)/ /g; s/`[^`]*`/ /g')"
+  split_shell "$s"
+  for t in "${CMD_TOKENS[@]}"; do
+    case "$t" in
+      git|*/git) line_has_git=1; break ;;
+    esac
+  done
+  sim="$(abs_dir "$base" "${PWD:-}" || true)"
+  [ -n "$sim" ] || sim="$base"
+  i=0
+  while [ "$i" -lt "${#CMD_TOKENS[@]}" ]; do
+    [ "$GIT_CALLS" -lt "$GIT_CALL_MAX" ] || break
+    t="${CMD_TOKENS[$i]}"
+    if [ "$t" = '(' ]; then
+      sim_stack+=("$sim")
+      i=$((i + 1))
+      continue
+    fi
+    if [ "$t" = ')' ]; then
+      if [ "${#sim_stack[@]}" -gt 0 ]; then
+        sim="${sim_stack[$((${#sim_stack[@]} - 1))]}"
+        unset "sim_stack[$((${#sim_stack[@]} - 1))]"
+      fi
+      i=$((i + 1))
+      continue
+    fi
+    if shell_sep "$t"; then
+      i=$((i + 1))
+      continue
+    fi
+    if [ "$t" = cd ]; then
+      nxt="${CMD_TOKENS[$((i + 1))]:-}"
+      sep="${CMD_TOKENS[$((i + 2))]:-}"
+      if [ -n "$nxt" ] && { [ "$sep" = "&&" ] || [ "$sep" = ";" ]; }; then
+        cand="$(abs_dir "$nxt" "$sim" || true)"
+        if [ -n "$cand" ] && [ -d "$cand" ]; then
+          sim="$cand"
+          if [ "$line_has_git" -eq 0 ] && in_git "$cand"; then last="$cand"; fi
+        fi
+        i=$((i + 3))
+      else
+        i=$((i + 1))
+      fi
+      continue
+    fi
+    case "$t" in
+      git|*/git)
+        gdir=""
+        j=$((i + 1))
+        while [ "$j" -lt "${#CMD_TOKENS[@]}" ]; do
+          u="${CMD_TOKENS[$j]}"
+          if shell_sep "$u"; then break; fi
+          case "$u" in
+            -C|--work-tree)
+              j=$((j + 1))
+              if [ "$j" -lt "${#CMD_TOKENS[@]}" ]; then gdir="${CMD_TOKENS[$j]}"; fi
+              ;;
+            -C=*|--work-tree=*)
+              gdir="${u#*=}"
+              ;;
+            -c|--git-dir|--namespace)
+              j=$((j + 1))
+              ;;
+            -*) ;;
+            *) break ;;
+          esac
+          j=$((j + 1))
+        done
+        if [ -n "$gdir" ]; then
+          cand="$(abs_dir "$gdir" "$sim" || true)"
+        else
+          cand="$sim"
+        fi
+        if in_git "$cand"; then
+          git_hit=1
+          git_dir="$cand"
+        else
+          git_hit=0
+          git_dir=""
+        fi
+        if [ "$j" -le "$i" ]; then j=$((i + 1)); fi
+        i="$j"
+        ;;
+      *)
+        if [ "$line_has_git" -eq 0 ] && path_is_abs "$t" && ! segment_skips_abs "$i"; then
+          cand="$(abs_dir "$t" "$sim" || true)"
+          if in_git "$cand"; then last="$cand"; fi
+        fi
+        i=$((i + 1))
+        ;;
+    esac
+  done
+  if [ "$line_has_git" -eq 1 ]; then
+    [ "$git_hit" -eq 1 ] || return 1
+    printf '%s' "$git_dir"
+    return 0
+  fi
+  [ -n "$last" ] || return 1
+  printf '%s' "$last"
+}
+
+resolve_attr() {
+  local base cand
+  ATTR_DIR=""
+  attr_explicit=0
+  base="${attr_cwd:-${PWD:-}}"
+  if [ -n "$attr_command" ]; then
+    cand="$(command_target "$attr_command" "$base" || true)"
+    if in_git "$cand"; then ATTR_DIR="$cand"; attr_explicit=1; return 0; fi
+  fi
+  if [ -n "$attr_file" ]; then
+    cand="$(abs_dir "$attr_file" "$base" || true)"
+    if in_git "$cand"; then ATTR_DIR="$cand"; attr_explicit=1; return 0; fi
+  fi
+  if [ -n "$attr_cwd" ]; then
+    cand="$(abs_dir "$attr_cwd" "${PWD:-}" || true)"
+    if in_git "$cand"; then ATTR_DIR="$cand"; attr_explicit=1; return 0; fi
+  fi
+  ATTR_DIR="${PWD:-}"
+  attr_explicit=0
+}
+
+binding_file() {
+  [ -n "$log" ] || return 1
+  printf '%s/bindings.json' "$(dirname "$log")"
+}
+
+lookup_binding() {
+  local f row sid="$1"
+  f="$(binding_file)" || return 1
+  [ -f "$f" ] || return 1
+  [ -n "$sid" ] && [ "$sid" != unknown ] || return 1
+  row="$(jq -c --arg sid "$sid" '.[$sid] // empty' "$f" 2>/dev/null)" || return 1
+  [ -n "$row" ] || return 1
+  BIND_REPO="$(printf '%s' "$row" | jq -r '.repo // empty')"
+  BIND_BRANCH="$(printf '%s' "$row" | jq -r '.branch // empty')"
+  [[ "$BIND_REPO" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$ ]] || return 1
+  [[ "$BIND_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] && [ "${#BIND_BRANCH}" -le 200 ] || return 1
+  return 0
+}
+
+write_binding() {
+  local f dir tmp
+  [ "$session" != unknown ] || return 0
+  [ -n "$repo" ] && [ "$repo" != unknown ] || return 0
+  [ -n "$branch" ] && [ "$branch" != unknown ] || return 0
+  f="$(binding_file)" || return 0
+  dir="$(dirname "$f")"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  tmp="$(mktemp "$dir/bindings.XXXXXX")" || return 0
+  if [ -f "$f" ]; then
+    jq -c --arg sid "$session" --arg repo "$repo" --arg branch "$branch" --arg tool "$tool" --arg ts "$ts" \
+      '.[$sid] = {repo:$repo, branch:$branch, tool:$tool, ts:$ts}' "$f" >"$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  else
+    jq -nc --arg sid "$session" --arg repo "$repo" --arg branch "$branch" --arg tool "$tool" --arg ts "$ts" \
+      '{($sid): {repo:$repo, branch:$branch, tool:$tool, ts:$ts}}' >"$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  fi
+  mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp"
 }
 
 num_or_blank() {
@@ -181,7 +553,12 @@ kind="" session="" tool_name="" guard="" outcome="" pr="" review="" verdict=""
 important="" nit="" pre_existing="" fix_iterations="" task="" task_kind="" pass=""
 mode="" tool_calls="" tokens="" wall_ms="" source="" ci_first_pass="" review_rounds=""
 time_to_merge_ms="" reverted_within_7d="" also_spawn="" skill="" agent=""
-duration_ms="" ok=""
+duration_ms="" ok="" marked="" cli_mode=0
+ATTR_DIR="" attr_explicit=0
+attr_cwd="${AGENT_HARNESS_KPI_CWD:-}"
+attr_command="${AGENT_HARNESS_KPI_COMMAND:-}"
+attr_file="${AGENT_HARNESS_KPI_FILE:-}"
+[ "${#attr_command}" -le 20000 ] || attr_command=""
 
 take_pair() {
   local key="${1%%=*}" val="${1#*=}"
@@ -263,7 +640,10 @@ if [ $# -eq 0 ]; then
           duration_ms: dur_of,
           ok: ok_of,
           transcript_path: (.transcript_path // "" | text),
-          agent_transcript_path: (.agent_transcript_path // "" | text)
+          agent_transcript_path: (.agent_transcript_path // "" | text),
+          cwd: (.cwd // "" | text),
+          command: ((.tool_input.command // .command // "") | text),
+          file: ((.tool_input.file_path // .tool_input.path // .tool_input.filePath // "") | text)
         }
     end
   ' 2>/dev/null || true)"
@@ -287,7 +667,14 @@ if [ $# -eq 0 ]; then
   ok="$(printf '%s' "$meta" | jq -r 'if .ok == false then "false" else "true" end' 2>/dev/null || true)"
   transcript_path="$(printf '%s' "$meta" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
   agent_transcript_path="$(printf '%s' "$meta" | jq -r '.agent_transcript_path // empty' 2>/dev/null || true)"
-  tool="$(read_tool)"
+  payload_cwd="$(printf '%s' "$meta" | jq -r '.cwd // empty' 2>/dev/null || true)"
+  payload_command="$(printf '%s' "$meta" | jq -r '.command // empty' 2>/dev/null || true)"
+  payload_file="$(printf '%s' "$meta" | jq -r '.file // empty' 2>/dev/null || true)"
+  [ -n "$payload_cwd" ] && attr_cwd="$payload_cwd"
+  [ -n "$payload_command" ] && attr_command="$payload_command"
+  [ -n "$payload_file" ] && attr_file="$payload_file"
+  [ "${#attr_command}" -le 20000 ] || attr_command=""
+  tool="$(read_tool 0)"
   if [ "$tool" = "cursor" ]; then
     tokens=""
   elif [ "$kind" = "session_end" ]; then
@@ -310,16 +697,17 @@ if [ $# -eq 0 ]; then
     ok=""
   fi
 else
+  cli_mode=1
   kind="$1"
   shift
   for pair in "$@"; do
     take_pair "$pair"
   done
-  tool="$(read_tool)"
+  tool="$(read_tool 1)"
 fi
 
 case "$kind" in
-  session_start|session_end|tool_call|tool_result|subagent_spawn|subagent_stop|guard_block|review_round|fix_round|ship|pr_open|eval_result|pr_outcome) ;;
+  session_start|session_end|tool_call|tool_result|subagent_spawn|subagent_stop|guard_block|review_round|fix_round|ship|pr_open|eval_result|pr_outcome|session_bind) ;;
   *) exit 0 ;;
 esac
 
@@ -354,11 +742,27 @@ if [[ ! "$skill" =~ ^[a-z0-9:-]{1,64}$ ]]; then skill=""; fi
 if [[ ! "$agent" =~ ^[A-Za-z0-9._:-]{1,64}$ ]]; then agent=""; fi
 if [ "$kind" = "tool_result" ] && [ -z "$ok" ]; then ok=true; fi
 
+if [ -z "$session" ]; then
+  session="$(session_from_env || true)"
+fi
 session="$(safe_token "$session")"
 [ -n "$session" ] || session=unknown
+if [ "$cli_mode" = 1 ]; then
+  [ "$session" != unknown ] || note_mark session
+  [ "$tool" != unattributed ] || note_mark host
+fi
 variant="$(read_variant)"
-repo="$(read_repo)"
-branch="$(read_branch)"
+resolve_attr
+if [ "$kind" = session_bind ] || [ "$attr_explicit" = 1 ]; then
+  repo="$(read_repo)"
+  branch="$(read_branch)"
+elif lookup_binding "$session"; then
+  repo="$BIND_REPO"
+  branch="$BIND_BRANCH"
+else
+  repo="$(read_repo)"
+  branch="$(read_branch)"
+fi
 if [ -n "${AGENT_HARNESS_KPI_TS:-}" ]; then ts="$AGENT_HARNESS_KPI_TS"; else ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"; fi
 [ -n "$ts" ] || exit 0
 
@@ -370,7 +774,9 @@ project_hook_owns_emit() {
     "${HOME:-}/.claude/hooks" | "${HOME:-}/.config/opencode/scripts/agent-harness/hooks") ;;
     *) return 1 ;;
   esac
-  top="$(git rev-parse --show-toplevel 2>/dev/null)" || return 1
+  git_q rev-parse --show-toplevel || return 1
+  top="$GIT_Q"
+  [ -n "$top" ] || return 1
   for proj in "$top/.claude/hooks/kpi-emit.sh" "$top/.opencode/hooks/kpi-emit.sh"; do
     [ -f "$proj" ] || continue
     pdir="$(cd "$(dirname "$proj")" && pwd -P 2>/dev/null)" || continue
@@ -401,7 +807,8 @@ write_event() {
     --arg tool_calls "$tool_calls" --arg wall_ms "$wall_ms" --arg source "$source" \
     --arg ci_first_pass "$ci_first_pass" --arg review_rounds "$review_rounds" \
     --arg time_to_merge_ms "$time_to_merge_ms" --arg reverted_within_7d "$reverted_within_7d" \
-    --arg skill "$skill" --arg agent "$agent" --arg duration_ms "$duration_ms" --arg ok "$ok" '
+    --arg skill "$skill" --arg agent "$agent" --arg duration_ms "$duration_ms" --arg ok "$ok" \
+    --arg marked "$marked" '
       def num($s): if $s == "" then null else ($s | tonumber) end;
       def flag($s): if $s == "true" then true elif $s == "false" then false else null end;
       {
@@ -440,12 +847,14 @@ write_event() {
       + (if $review_rounds == "" then {} else {review_rounds: num($review_rounds)} end)
       + (if $time_to_merge_ms == "" then {} else {time_to_merge_ms: num($time_to_merge_ms)} end)
       + (if $reverted_within_7d == "" then {} else {reverted_within_7d: flag($reverted_within_7d)} end)
+      + (if $marked == "" then {} else {marked: $marked} end)
     ' 2>/dev/null)" || return 0
   [ -n "$line" ] || return 0
   printf '%s\n' "$line"
 }
 
 mkdir -p "$(dirname "$log")" 2>/dev/null || exit 0
+[ "$kind" = session_bind ] && write_binding || true
 held=0
 if [ "$kind" = guard_block ]; then
   lock="${log}.guard.lock"
