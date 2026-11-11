@@ -1455,9 +1455,11 @@ merge_agent_harness_settings() {
           if $mode == "local" and ($cmd | startswith("bash ")) and (($cmd | contains("\"")) | not) then
             "bash \"" + ($cmd | sub("^bash "; "")) + "\""
           else $cmd end;
+        # Claude treats "*", "", and a missing matcher as the same match-all.
+        def match_key($m): if ($m == "*" or $m == "") then "" else $m end;
         def rewrite_groups($groups):
           reduce $groups[] as $group ({seen: {}, acc: []};
-            ($group.matcher // "") as $m
+            (match_key($group.matcher // "")) as $m
             | .bucket = []
             | reduce ($group.hooks // [])[] as $hook (.;
                 (canon($hook.command // "")) as $cmd
@@ -1473,7 +1475,7 @@ merge_agent_harness_settings() {
               end
           ) | .acc;
         def has_managed($ev; $m; $name):
-          any(.hooks[$ev][]?; ((.matcher // "") == $m) and any(.hooks[]?; managed_name(.command // "") == $name));
+          any(.hooks[$ev][]?; (match_key(.matcher // "") == match_key($m)) and any(.hooks[]?; managed_name(.command // "") == $name));
         def addhook($ev; $m; $cmd):
           (quoted($cmd)) as $final
           | (managed_name($final)) as $name
