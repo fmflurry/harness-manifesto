@@ -1,0 +1,39 @@
+{
+  "feature": {
+    "repo": "fmflurry/harness-manifesto",
+    "branch": "fix/kpi-worktree-attribution",
+    "pr": null
+  },
+  "prs": [],
+  "wall_ms": null,
+  "active_ms": null,
+  "idle_gap_min": 5,
+  "sessions": {
+    "cursor": null,
+    "claude": null,
+    "opencode": null
+  },
+  "tools": [],
+  "skills": [],
+  "agents": [],
+  "tool_failures": null,
+  "failure_tools": [],
+  "duration_ms": null,
+  "guard_blocks": null,
+  "guards": {},
+  "review_rounds": null,
+  "fix_rounds": null,
+  "tokens": null,
+  "tokens_known": 0,
+  "events": 0,
+  "first_ts": null,
+  "last_ts": null,
+  "partial": true,
+  "coverage": {
+    "collected": false,
+    "reason": "empty selection",
+    "warnings": [
+      "empty selection"
+    ]
+  }
+}

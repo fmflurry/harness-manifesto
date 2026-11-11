@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KPI events follow the worktree</title>
+<style>
+  :root {
+    --bg: #FAF6EE;
+    --bg-soft: #F3EDE0;
+    --card: #FFFCF6;
+    --text: #3A342C;
+    --muted: #7A7164;
+    --line: #D9CFC0;
+    --accent: #8B6F47;
+    --sage: #6B8F71;
+    --honey: #C4A35A;
+    --rose: #9B6B6B;
+    --shadow: 0 8px 28px rgba(58, 52, 44, 0.07);
+    --radius: 16px;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    line-height: 1.55;
+    max-width: 68rem;
+    margin-inline: auto;
+    padding: 2rem 1.25rem 3.5rem;
+  }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 0.4rem; }
+  h2 { font-family: var(--sans); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.7rem; }
+  p { margin: 0.4rem 0; }
+  .lede { max-width: 42rem; color: var(--muted); font-size: 1.05rem; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.4rem; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.15rem 1.25rem;
+  }
+  .bad { background: #F7E4E4; }
+  .good { background: #D7E6DF; }
+  .step { display: flex; gap: 0.7rem; align-items: flex-start; margin: 0.55rem 0; }
+  .n {
+    flex: 0 0 auto;
+    width: 1.6rem; height: 1.6rem;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    display: grid; place-items: center;
+  }
+  code, .mono { font-family: var(--mono); font-size: 0.86rem; }
+  .path { background: var(--bg-soft); border-radius: 8px; padding: 0.15rem 0.4rem; }
+  ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+  li { margin: 0.25rem 0; }
+  .files { columns: 2; }
+  .note { margin-top: 1rem; color: var(--muted); font-size: 0.95rem; max-width: 42rem; }
+  @media (max-width: 800px) {
+    .grid, .files { display: block; columns: 1; }
+    body { padding: 1.2rem 0.9rem 2.4rem; }
+    h1 { font-size: 1.6rem; }
+  }
+</style>
+</head>
+<body>
+  <h1>KPI events follow the worktree</h1>
+  <p class="lede">Orbit printed “0 claude, 0 cursor, 0 opencode” for work that happened. The hook was labeling every call with the shell’s checkout, while <code>kpi feature</code> kept only the feature branch.</p>
+
+  <div class="grid">
+    <section class="card bad">
+      <h2>Before</h2>
+      <div class="step"><span class="n">1</span><p>The hook process stays on <span class="path">master</span>. <code>/ship</code> never <code>cd</code>s.</p></div>
+      <div class="step"><span class="n">2</span><p>The tool runs in the worktree: <code>git -C</code>, <code>cd … &amp;&amp;</code>, or an absolute path.</p></div>
+      <div class="step"><span class="n">3</span><p>The event is stored as <span class="path">master</span>. The feature report looks up <span class="path">feat/…</span> and finds nothing.</p></div>
+      <div class="step"><span class="n">4</span><p>A review or a guard with no session still marked the report complete, so the zeros looked confirmed.</p></div>
+    </section>
+    <section class="card good">
+      <h2>After</h2>
+      <div class="step"><span class="n">1</span><p>Claude, Cursor, and OpenCode pass the payload directory, the shell command, and the file path. The command is not stored.</p></div>
+      <div class="step"><span class="n">2</span><p>Repo is the worktree’s origin. Branch is <code>git -C &lt;dir&gt; rev-parse --abbrev-ref HEAD</code>.</p></div>
+      <div class="step"><span class="n">3</span><p><code>ship-init</code> and <code>goal</code> write <code>session_bind</code>. Later events with no directory use that binding.</p></div>
+      <div class="step"><span class="n">4</span><p>A <code>Session-Id</code> trailer on the branch counts a session that already has an event. No event, no invented session.</p></div>
+      <div class="step"><span class="n">5</span><p>Missing capture is <strong>N/A</strong>, with a coverage reason. A real zero appears only after session events were collected.</p></div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:1rem">
+    <h2>Directory, in order</h2>
+    <p><code>git -C</code> → <code>cd … &amp;&amp;</code> → absolute path inside a worktree → tool file path → payload <code>cwd</code> → session binding → hook directory.</p>
+  </section>
+
+  <section class="card" style="margin-top:1rem">
+    <h2>Main files</h2>
+    <ul class="files">
+      <li><code>.claude/hooks/kpi-emit.sh</code></li>
+      <li><code>.claude/hooks/pre-tool-use.sh</code></li>
+      <li><code>scripts/cursor-plugin/cursor-adapter.sh</code></li>
+      <li><code>plugins/kpi/index.ts</code></li>
+      <li><code>plugins/lib/kpi-capture.ts</code></li>
+      <li><code>scripts/agent-harness/kpi-feature.mjs</code></li>
+      <li><code>scripts/agent-harness/ship-init.sh</code></li>
+      <li><code>scripts/agent-harness/goal.sh</code></li>
+    </ul>
+  </section>
+
+  <section class="card" style="margin-top:1rem">
+    <h2>What the tests lock</h2>
+    <ul>
+      <li>Real <code>git worktree add</code> repos: payload <code>cwd</code>, <code>git -C</code>, <code>cd</code>, absolute path, and a file path inside the worktree.</li>
+      <li>Cursor adapter and Claude <code>pre-tool-use</code>, plus the OpenCode workdir hint.</li>
+      <li>Binding fallback, <code>Session-Id</code> trailer, and a trailer id with no event stays absent.</li>
+      <li>Admin-only events stay partial and print N/A. A tool call on the branch prints real counts.</li>
+      <li>Distinct warnings: log absent, jq missing, capture disabled, empty selection, invalid JSON lines.</li>
+    </ul>
+  </section>
+
+  <p class="note">This branch’s own metrics table is N/A: the cloud log has no session event for <code>fix/kpi-worktree-attribution</code>. That is the report telling the truth, not a zero. Hooks still fail open, and no prompt or path leaves the machine.</p>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/harness-manifesto  fix/kpi-worktree-attribution  pr n/a. Status: partial. Coverage: empty selection.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr></table>
+<p style="margin:10px 0 0">Tools: N/A</p>
+<p style="margin:4px 0 0">Skills: N/A</p>
+<p style="margin:4px 0 0">Agents: N/A</p>
+<p style="margin:4px 0 0">Failure tools: N/A. Durations: n/a.</p>
+</section>
+</body>
+</html>
