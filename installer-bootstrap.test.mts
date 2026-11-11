@@ -143,7 +143,7 @@ reply_markers = [
     b"Choose harness",
     b"Choose harness variant",
     b"Choose install scope",
-    b"write the OPENCODE_MODEL_",
+    b"write the settings-opencode shell block",
     b"install the .claude mirror",
 ]
 command = sys.argv[2:]
@@ -1088,7 +1088,7 @@ test("interactive OpenCode reinstall default-no for nested .claude does not mark
         "Choose harness variant",
         "Choose install scope",
         "delete unexpected nested .claude",
-        "write the OPENCODE_MODEL_",
+        "write the settings-opencode shell block",
       ],
       projectDir,
       {
