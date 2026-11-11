@@ -1,9 +1,12 @@
+import path from "node:path";
+
 const ID = /^[A-Za-z0-9._:-]{1,200}$/;
 const TOOL = /^[A-Za-z0-9._:-]{1,64}$/;
 const SKILL = /^[a-z0-9:-]{1,64}$/;
 const AGENT = /^[A-Za-z0-9._:-]{1,64}$/;
 const SKILL_TOOL = /^(skill|use_skill|load_skill)$/i;
 const SPAWN_TOOL = /^(task|agent)$/i;
+const SHELL_TOOL = /^(bash|shell)$/i;
 const MESSAGE_CAP = 400;
 const SESSION_CAP = 200;
 const START_CAP = 400;
@@ -38,6 +41,29 @@ function remember<T>(map: Map<string, T>, key: string, value: T, max: number): v
     if (typeof oldest !== "string") break;
     map.delete(oldest);
   }
+}
+
+export type KpiAttribution = {
+  cwd: string;
+  command: string;
+  file: string;
+};
+
+/** Directory hints for kpi-emit. The command and path stay out of the KPI argument list. */
+export function attributionOf(tool: unknown, args: unknown, fallbackDir: string): KpiAttribution {
+  const rec = asRecord(args) ?? {};
+  const workdir = typeof rec.workdir === "string" ? rec.workdir : "";
+  const cwd = workdir ? path.resolve(fallbackDir, workdir) : fallbackDir;
+  const name = typeof tool === "string" ? tool : "";
+  const command = SHELL_TOOL.test(name) && typeof rec.command === "string" ? rec.command : "";
+  const file = typeof rec.file_path === "string"
+    ? rec.file_path
+    : typeof rec.filePath === "string"
+      ? rec.filePath
+      : typeof rec.path === "string"
+        ? rec.path
+        : "";
+  return { cwd, command, file };
 }
 
 export function sanitiseId(value: unknown): string {

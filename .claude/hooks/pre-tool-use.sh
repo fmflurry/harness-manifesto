@@ -79,6 +79,12 @@ if [ -n "$KPI_TOOL" ] && [ -f "$KPI_SH" ]; then
   [ -n "$KPI_SESSION" ] && KPI_ARGS+=("session=$KPI_SESSION")
   [ -n "$KPI_SKILL" ] && KPI_ARGS+=("skill=$KPI_SKILL")
   [ -n "$KPI_AGENT" ] && KPI_ARGS+=("agent=$KPI_AGENT")
+  KPI_CWD="$(printf '%s' "${TASK_MARKER_INPUT:-}" | jq -r '.cwd // empty' 2>/dev/null || true)"
+  KPI_COMMAND="$(printf '%s' "${TASK_MARKER_INPUT:-}" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
+  KPI_FILE="$(printf '%s' "${TASK_MARKER_INPUT:-}" | jq -r '.tool_input.file_path // .tool_input.path // .tool_input.filePath // empty' 2>/dev/null || true)"
+  [ -n "$KPI_CWD" ] && export AGENT_HARNESS_KPI_CWD="$KPI_CWD"
+  [ -n "$KPI_COMMAND" ] && export AGENT_HARNESS_KPI_COMMAND="$KPI_COMMAND"
+  [ -n "$KPI_FILE" ] && export AGENT_HARNESS_KPI_FILE="$KPI_FILE"
   "$KPI_SH" "${KPI_ARGS[@]}" >/dev/null 2>&1 || true
   case "$KPI_TOOL" in
     Task|Agent|task|agent)

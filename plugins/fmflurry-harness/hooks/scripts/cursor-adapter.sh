@@ -110,6 +110,10 @@ CLAUDE_TOOL_ARGS="$(printf '%s' "$PAYLOAD" | jq -c '.tool_input // empty' 2>/dev
 CLAUDE_FILE_PATH="$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.file_path // .tool_input.path // empty' 2>/dev/null)"
 export CLAUDE_TOOL_NAME CLAUDE_TOOL_ARGS CLAUDE_FILE_PATH
 export AGENT_HARNESS_TOOL=cursor
+AGENT_HARNESS_KPI_CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || true)"
+AGENT_HARNESS_KPI_COMMAND="$(printf '%s' "$INPUT" | jq -r '.command // .tool_input.command // empty' 2>/dev/null || true)"
+AGENT_HARNESS_KPI_FILE="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // .tool_input.filePath // .file_path // empty' 2>/dev/null || true)"
+export AGENT_HARNESS_KPI_CWD AGENT_HARNESS_KPI_COMMAND AGENT_HARNESS_KPI_FILE
 
 ERR_FILE="$(mktemp 2>/dev/null)" || allow_and_exit
 OUT="$(printf '%s' "$PAYLOAD" | "${BASH:-bash}" "$SCRIPT" 2>"$ERR_FILE")"

@@ -117,5 +117,6 @@ mkdir -p "$(dirname "$log")"
 [ ! -s "$log" ] || decisions_archive "$slug" >&2 || true
 [ -s "$log" ] || printf 'ts\tphase\tdecision\twhy\tevidence\tresult\n' >"$log"
 bash -p "$HARNESS_DIR/ado-state.sh" start "$branch" "$goal" || true
+AGENT_HARNESS_KPI_CWD="$path" kpi_emit session_bind || true
 echo "$path"
 echo "slug=$slug" >&2

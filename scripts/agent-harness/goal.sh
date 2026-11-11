@@ -5,6 +5,16 @@ set -euo pipefail
 # shellcheck source=scripts/agent-harness/lib.sh
 . "${BASH_SOURCE[0]%/*}/lib.sh"
 mkdir -p "$STATE_DIR"
+kpi_bind_linked_worktree() {
+  local dir gd gcd
+  dir="${1:-${GS_WT:-}}"
+  [ -n "$dir" ] && [ -d "$dir" ] || return 0
+  gd="$(git -C "$dir" rev-parse --absolute-git-dir 2>/dev/null)" || return 0
+  gcd="$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+  [ "$gd" != "$gcd" ] || return 0
+  AGENT_HARNESS_KPI_CWD="$dir" kpi_emit session_bind || true
+}
+kpi_bind_linked_worktree || true
 escalate_goal() {
   goal_update --arg r "$1" '.status = "escalated" | .reason = $r'
   reg_mirror --arg r "$1" '.status = "escalated" | .reason = $r'
@@ -54,6 +64,7 @@ case "$cmd" in
     [ -f "$GOAL_FILE" ] || { echo "goal review: no goal" >&2; exit 2; }
     wt="$(reg_get "$(goal_slug)" '.path // empty' 2>/dev/null || true)"
     [ -d "$wt" ] || wt="$PWD"
+    kpi_bind_linked_worktree "$wt" || true
     head_sha="$(git -C "$wt" rev-parse HEAD 2>/dev/null)" || { echo "goal review: $wt is not a git worktree" >&2; exit 2; }
     mb=""
     # Same recipe as gate_key in .claude/hooks/autonomy-git-guard.sh (hooks must not source lib.sh): keep both identical.
