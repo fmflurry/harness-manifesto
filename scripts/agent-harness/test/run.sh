@@ -1728,7 +1728,8 @@ STAR_LOCAL="$(jq -n \
   '{hooks:{PostToolUse:[{matcher:"*",hooks:[{type:"command",command:$star}]},{hooks:[{type:"command",command:$dot}]}],PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:"bash ~/.claude/hooks/autonomy-git-guard.sh"}]},{matcher:"Edit|Write|MultiEdit",hooks:[{type:"command",command:"bash ~/.claude/hooks/domain-rules.sh"}]}]}}')"
 star_merged="$(install_merge_local "$STAR_LOCAL")"
 check "installer --local collapses star and empty matchers for one script" test "$(jq -r '[.hooks.PostToolUse[]?.hooks[]?.command | select(endswith("kpi-emit.sh") or endswith("kpi-emit.sh\""))] | length' <<<"$star_merged")" = 1
-check "installer --local keeps Bash and Edit matchers apart" test "$(jq -r '[.hooks.PreToolUse[]?.matcher] | sort | join(",")' <<<"$star_merged")" = "Bash,Edit|Write|MultiEdit"
+check "installer --local keeps Bash and Edit matchers apart" test "$(jq -r '[.hooks.PreToolUse[]?.matcher] | unique | sort | join(",")' <<<"$star_merged")" = "AskUserQuestion,Bash,Edit|Write|MultiEdit"
+check "installer --local keeps both Bash scripts" test "$(jq -r '[.hooks.PreToolUse[] | select(.matcher=="Bash") | .hooks[].command] | length' <<<"$star_merged")" = 2
 check "installer --local keeps a user hook beside the project-dir guard" test "$(jq -r '[.hooks.PreToolUse[] | select(.matcher=="Bash") | .hooks[].command | select(.=="/opt/own/hook.sh")] | length' <<<"$dup_merged")" = 1
 check "installer --local rewrites a dot-slash domain-rules hook" test "$(jq -r '[.hooks.PreToolUse[] | select(.matcher=="Edit|Write|MultiEdit") | .hooks[].command] | .[0]' <<<"$dup_merged" | tr -d '\r')" = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/domain-rules.sh"'
 check "installer global does not rewrite hooks to CLAUDE_PROJECT_DIR" test "$(install_merge "$LEGACY_SETTINGS" | jq -r '[.. | objects | select(has("command")) | .command | select(contains("CLAUDE_PROJECT_DIR"))] | length')" = 0
