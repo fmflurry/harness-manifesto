@@ -370,13 +370,11 @@ if ($Status) {
 
 if ($Uninstall) {
     Step 'Uninstall'
-    if (-not $Local -and $doOpencode) {
+    if ($doOpencode) {
         foreach ($name in $RetiredOpenCodeEnv) {
             [Environment]::SetEnvironmentVariable($name, $null, 'User')
         }
         Ok 'removed retired OPENCODE_MODEL_* and OPENCODE_REASONING_* User variables'
-    } elseif ($Local) {
-        Info 'env vars not removed — -Local mode never persisted them'
     } else {
         Info 'env vars not removed — OpenCode was skipped'
     }
