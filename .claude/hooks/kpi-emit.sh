@@ -258,6 +258,34 @@ shell_sep() {
   return 1
 }
 
+segment_skips_abs() {
+  local idx="$1" k u left right has_git=0 has_c=0 last
+  left="$idx"
+  while [ "$left" -gt 0 ]; do
+    u="${CMD_TOKENS[$((left - 1))]}"
+    shell_sep "$u" && break
+    left=$((left - 1))
+  done
+  right="$idx"
+  last=$((${#CMD_TOKENS[@]} - 1))
+  while [ "$right" -lt "$last" ]; do
+    u="${CMD_TOKENS[$((right + 1))]}"
+    shell_sep "$u" && break
+    right=$((right + 1))
+  done
+  k="$left"
+  while [ "$k" -le "$right" ]; do
+    u="${CMD_TOKENS[$k]}"
+    [ "$u" = cd ] && return 0
+    case "$u" in
+      git|*/git) has_git=1 ;;
+      -C|--work-tree|-C=*|--work-tree=*) has_c=1 ;;
+    esac
+    k=$((k + 1))
+  done
+  [ "$has_git" -eq 1 ] && [ "$has_c" -eq 1 ]
+}
+
 split_shell() {
   local s="$1" i=0 n c cur="" nxt
   CMD_TOKENS=()
@@ -294,17 +322,36 @@ split_shell() {
 
 command_target() {
   local cmd="$1" base="$2" s i t nxt sep cand gdir j u
-  local sim="" last=""
+  local sim="" last="" line_has_git=0 git_hit=0 git_dir=""
+  local -a sim_stack=()
   [ -n "$cmd" ] || return 1
   [ "${#cmd}" -le 20000 ] || return 1
   s="$(printf '%s' "$cmd" | sed -E 's/\$\([^)]*\)/ /g; s/`[^`]*`/ /g')"
   split_shell "$s"
+  for t in "${CMD_TOKENS[@]}"; do
+    case "$t" in
+      git|*/git) line_has_git=1; break ;;
+    esac
+  done
   sim="$(abs_dir "$base" "${PWD:-}" || true)"
   [ -n "$sim" ] || sim="$base"
   i=0
   while [ "$i" -lt "${#CMD_TOKENS[@]}" ]; do
     [ "$GIT_CALLS" -lt "$GIT_CALL_MAX" ] || break
     t="${CMD_TOKENS[$i]}"
+    if [ "$t" = '(' ]; then
+      sim_stack+=("$sim")
+      i=$((i + 1))
+      continue
+    fi
+    if [ "$t" = ')' ]; then
+      if [ "${#sim_stack[@]}" -gt 0 ]; then
+        sim="${sim_stack[$((${#sim_stack[@]} - 1))]}"
+        unset "sim_stack[$((${#sim_stack[@]} - 1))]"
+      fi
+      i=$((i + 1))
+      continue
+    fi
     if shell_sep "$t"; then
       i=$((i + 1))
       continue
@@ -316,7 +363,7 @@ command_target() {
         cand="$(abs_dir "$nxt" "$sim" || true)"
         if [ -n "$cand" ] && [ -d "$cand" ]; then
           sim="$cand"
-          if in_git "$cand"; then last="$cand"; fi
+          if [ "$line_has_git" -eq 0 ] && in_git "$cand"; then last="$cand"; fi
         fi
         i=$((i + 3))
       else
@@ -352,12 +399,18 @@ command_target() {
         else
           cand="$sim"
         fi
-        if in_git "$cand"; then last="$cand"; fi
+        if in_git "$cand"; then
+          git_hit=1
+          git_dir="$cand"
+        else
+          git_hit=0
+          git_dir=""
+        fi
         if [ "$j" -le "$i" ]; then j=$((i + 1)); fi
         i="$j"
         ;;
       *)
-        if path_is_abs "$t"; then
+        if [ "$line_has_git" -eq 0 ] && path_is_abs "$t" && ! segment_skips_abs "$i"; then
           cand="$(abs_dir "$t" "$sim" || true)"
           if in_git "$cand"; then last="$cand"; fi
         fi
@@ -365,6 +418,11 @@ command_target() {
         ;;
     esac
   done
+  if [ "$line_has_git" -eq 1 ]; then
+    [ "$git_hit" -eq 1 ] || return 1
+    printf '%s' "$git_dir"
+    return 0
+  fi
   [ -n "$last" ] || return 1
   printf '%s' "$last"
 }

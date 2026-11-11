@@ -84,7 +84,7 @@
     <section class="card good">
       <h2>After</h2>
       <div class="step"><span class="n">1</span><p>Claude, Cursor, and OpenCode pass the payload directory, the shell command, and the file path. The command is not stored.</p></div>
-      <div class="step"><span class="n">2</span><p>The command is walked left to right. <code>cd</code> with <code>&amp;&amp;</code> or <code>;</code>, parentheses, and <code>git -C .</code> keep the <strong>last</strong> worktree. A drive letter or UNC path counts as absolute.</p></div>
+      <div class="step"><span class="n">2</span><p>The last <code>git</code> command sets the directory (<code>-C</code>, <code>--work-tree</code>, or the simulated directory). <code>(</code> <code>)</code> restore that directory. A later path does not override the git command, and a git command outside a checkout does not keep an earlier <code>cd</code>.</p></div>
       <div class="step"><span class="n">3</span><p><code>ship-init</code> and <code>goal</code> write <code>session_bind</code>. Later events with no directory use that binding.</p></div>
       <div class="step"><span class="n">4</span><p>A <code>Session-Id</code> trailer on the branch counts a session that already has an event. No event, no invented session.</p></div>
       <div class="step"><span class="n">5</span><p>Missing capture is <strong>N/A</strong>, with a coverage reason. A real zero appears only after session events were collected.</p></div>
@@ -93,7 +93,7 @@
 
   <section class="card" style="margin-top:1rem">
     <h2>Directory, in order</h2>
-    <p>Walk the command and keep the last checkout → tool file path → payload <code>cwd</code> → session binding → hook directory. <code>cd</code> moves the simulated directory on <code>&amp;&amp;</code> or <code>;</code>. <code>git -C</code> and <code>--work-tree</code> resolve from there.</p>
+    <p>Last git command’s checkout, or a bare absolute path when the line has no git command → tool file path → payload <code>cwd</code> → session binding → hook directory. <code>cd</code> moves the simulated directory on <code>&amp;&amp;</code> or <code>;</code>. <code>(</code> saves it and <code>)</code> restores it.</p>
   </section>
 
   <section class="card" style="margin-top:1rem">
@@ -113,7 +113,7 @@
   <section class="card" style="margin-top:1rem">
     <h2>What the tests lock</h2>
     <ul>
-      <li>Real <code>git worktree add</code> repos: payload <code>cwd</code>, <code>git -C</code>, <code>cd</code>, absolute path, a file path, and seven chained commands that must end on <code>feat/widget</code> or <code>feat/other</code>.</li>
+      <li>Real <code>git worktree add</code> repos: payload <code>cwd</code>, <code>git -C</code>, <code>cd</code>, absolute path, a file path, and ten chained commands. The last git command wins over a later path, a subshell <code>cd</code>, and a <code>cd</code> that left the checkout.</li>
       <li><code>goal status</code> inside a linked worktree, and <code>ship-init</code> against a local bare origin, write <code>session_bind</code> for that branch.</li>
       <li>A session id containing <code>/</code> or <code>..</code> does not create a task marker outside the home directory. Drive-letter paths are checked on Windows.</li>
       <li>Cursor adapter and Claude <code>pre-tool-use</code>, plus the OpenCode workdir hint.</li>
