@@ -1977,6 +1977,10 @@ test("bootstrap.ps1 clears retired model env vars and does not set Mistral defau
   assert.doesNotMatch(text, /myMistral\//);
   assert.match(installSection, /SetEnvironmentVariable\(\$name, \$null, 'User'\)/);
   assert.doesNotMatch(installSection, /SetEnvironmentVariable\(\$name, \$EnvVars/);
+  const uninstallSection = text.slice(text.indexOf("if ($Uninstall)"), text.indexOf("# ------------------------------ prereqs"));
+  assert.match(uninstallSection, /SetEnvironmentVariable\(\$name, \$null, 'User'\)/);
+  assert.doesNotMatch(uninstallSection, /never persisted them/);
+  assert.doesNotMatch(uninstallSection, /-not \$Local/);
 });
 
 test("local monolith install is model-free, dedupes project hooks, and keeps shebang scripts executable", () => {
@@ -1998,6 +2002,13 @@ test("local monolith install is model-free, dedupes project hooks, and keeps she
         hooks: {
           SessionStart: [
             { hooks: [{ type: "command", command: 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"' }] },
+            { hooks: [{ type: "command", command: "bash ./.claude/hooks/kpi-emit.sh" }] },
+          ],
+          PostToolUse: [
+            {
+              matcher: "*",
+              hooks: [{ type: "command", command: 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"' }],
+            },
             { hooks: [{ type: "command", command: "bash ./.claude/hooks/kpi-emit.sh" }] },
           ],
           PreToolUse: [
@@ -2036,7 +2047,12 @@ test("local monolith install is model-free, dedupes project hooks, and keeps she
     };
     const projectKpi = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"';
     assert.deepEqual(commandsFor(settings, "SessionStart", "", "kpi-emit.sh"), [projectKpi]);
-    assert.deepEqual(commandsFor(settings, "PostToolUse", "", "kpi-emit.sh"), [projectKpi]);
+    const postKpi = (settings.hooks.PostToolUse ?? []).flatMap((group) =>
+      (group.hooks ?? [])
+        .map((hook) => hook.command ?? "")
+        .filter((command) => command.endsWith("kpi-emit.sh") || command.endsWith('kpi-emit.sh"')),
+    );
+    assert.deepEqual(postKpi, [projectKpi]);
     assert.deepEqual(
       commandsFor(settings, "PreToolUse", "Bash", "autonomy-git-guard.sh"),
       ['bash "$CLAUDE_PROJECT_DIR/.claude/hooks/autonomy-git-guard.sh"'],
