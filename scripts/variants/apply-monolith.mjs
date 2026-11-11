@@ -104,13 +104,18 @@ function readOnlyTools() {
   };
 }
 
-function agentRecord(name, md, modelEnv) {
+function withoutModel(agent) {
+  const copy = { ...agent };
+  delete copy.model;
+  return copy;
+}
+
+function agentRecord(name, md) {
   const { fm } = splitFrontmatter(md);
   const description = unquote(fm.description) || manifest.descriptions[name];
   return {
     description,
     mode: 'subagent',
-    model: `{env:${modelEnv}}`,
     prompt: `{file:prompts/agents/${name}.txt}`,
     temperature: 0.3,
     topP: 0.9,
@@ -232,7 +237,6 @@ function applyOpencode(dir) {
     main: {
       description: 'Primary agent. Reads, writes, and plans. Loads skills on demand and spawns a subagent only for isolated review, parallel investigation, or noisy output.',
       mode: 'primary',
-      model: `{env:${manifest.primaryModelEnv}}`,
       prompt: '{file:prompts/agents/main.txt}',
       temperature: 0.3,
       topP: 0.9,
@@ -252,7 +256,7 @@ function applyOpencode(dir) {
   for (const [name, def] of Object.entries(cfg.agent ?? {})) {
     if (remove.has(name) || name === 'main') continue;
     if (manifest.descriptions[name]) def.description = manifest.descriptions[name];
-    agents[name] = def;
+    agents[name] = withoutModel(def);
     if (!kept.has(name) && name !== 'build' && name !== 'plan') {
       console.error(`apply-monolith: unexpected agent left in place: ${name}`);
       process.exit(1);
@@ -267,9 +271,10 @@ function applyOpencode(dir) {
   for (const name of manifest.overlayAgents) {
     const md = read(`variants/monolith/agents/${name}.md`);
     write(path.join(dir, 'prompts', 'agents', `${name}.txt`), promptBody(md));
-    agents[name] = agentRecord(name, md, manifest.reviewModelEnv);
+    agents[name] = agentRecord(name, md);
   }
   cfg.agent = agents;
+  delete cfg.model;
 
   for (const def of Object.values(cfg.command ?? {})) {
     if (def && typeof def === 'object' && typeof def.agent === 'string') def.agent = remapAgentName(def.agent, manifest);

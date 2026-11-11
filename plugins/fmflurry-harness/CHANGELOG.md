@@ -2,6 +2,11 @@
 
 Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cursor-plugin/config.json` and is copied into `.cursor-plugin/plugin.json` by `node scripts/build-cursor-plugin.mjs`.
 
+## [0.4.47] - 2026-11-11
+
+- OpenCode agents no longer pin a model. A primary agent uses the model selected for the session, and a subagent uses the model of the agent that invoked it. The installer no longer writes `OPENCODE_MODEL_*` or `OPENCODE_REASONING_*`. A reinstall removes those exports, and the Windows bootstrap clears the User-scope variables it used to set. The `myMistral` provider definition stays available and is not a default.
+- A project install merges Claude hooks by event, matcher, and script, and writes them as `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<script>"`, so a second copy does not run. A copied script whose first line is a shebang stays executable.
+
 ## [0.4.46] - 2026-11-11
 
 - KPI events take repo and branch from the session worktree (`cwd`, `git -C`, `cd`, absolute paths, and file paths) and from a session binding or a `Session-Id` trailer. A feature report with no session capture shows N/A instead of 0.

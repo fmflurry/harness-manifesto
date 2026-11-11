@@ -345,8 +345,9 @@ What it does (interactive by default):
   1. Verifies prerequisites (git, bun or npm).
   2. Merges this repo into ~/.config/opencode (or uses it in place).
   3. Installs JS deps with bun (if available) or npm.
-  4. Adds OPENCODE_MODEL_* and OPENCODE_REASONING_* defaults to your shell rc,
-     fenced with markers so re-runs and uninstalls are idempotent.
+  4. Writes a marker-fenced shell block with SETTINGS_OPENCODE_REPO.
+     Re-runs replace the block, which drops retired OPENCODE_MODEL_* and
+     OPENCODE_REASONING_* exports. OpenCode agents inherit the session model.
   5. Optionally merges the .claude/ mirror into ~/.claude.
   6. Prints next steps for MCP servers and a smoke test.
 
@@ -784,17 +785,9 @@ vendor_project_surfaces() {
 
 env_block_content() {
     cat <<'EOF'
-# Added by settings-opencode installer. Edit values to match your provider.
+# Added by settings-opencode installer.
 # To remove this block, run: settings-sync --uninstall
-# Defaults target the myMistral provider configured in opencode.jsonc.
-export OPENCODE_MODEL_CONDUCTOR="myMistral/mistral-medium-2604"
-export OPENCODE_MODEL_SUBAGENT_PLANNER="myMistral/mistral-large-latest"
-export OPENCODE_MODEL_SUBAGENT_WORKER="myMistral/mistral-medium-latest"
-export OPENCODE_MODEL_SUBAGENT_MINI="myMistral/mistral-small-latest"
-export OPENCODE_REASONING_CONDUCTOR="high"
-export OPENCODE_REASONING_PRIMARY="high"
-export OPENCODE_REASONING_SECONDARY="medium"
-export OPENCODE_REASONING_TERTIARY="low"
+# OpenCode agents inherit the session model. This block does not set one.
 EOF
     printf 'export SETTINGS_OPENCODE_REPO="%s"\n' "$REPO_DIR"
 }
@@ -1209,7 +1202,7 @@ install_env_vars() {
     fi
 
     info "target rc file: $rc"
-    if ask "write the OPENCODE_MODEL_* and OPENCODE_REASONING_* defaults there?" Y; then
+    if ask "write the settings-opencode shell block there?" Y; then
         write_env_block "$rc"
         info "open a new shell or run: source \"$rc\""
     else
@@ -1549,8 +1542,8 @@ print_next_steps() {
 $([ "$SKIP_CLAUDE" = "1" ] && echo "      ./.claude              (skipped via --no-claude)" || { [ "$CLAUDE_TARGET_READY" = "1" ] && echo "      $INVOKE_DIR/.claude    (Claude Code mirror)" || echo "      $INVOKE_DIR/.claude    (left unchanged)"; })
 
     No shell reload needed — no global rc was modified.
-    To set model env-vars for this project only, add the block printed above
-    to a per-project .envrc (direnv) or source it manually.
+    OpenCode uses the model selected for this session. The block printed
+    above only records SETTINGS_OPENCODE_REPO.
 
     Re-run anytime from $INVOKE_DIR: $REPO_DIR/install.sh --local
     Uninstall local copy:           $REPO_DIR/install.sh --local --uninstall
@@ -1572,7 +1565,7 @@ EOF
     1. Reload your shell (or:  source "$(detect_shell_rc)")
     2. Re-run this script to push fresh changes from the repo to the Windows target.
 
-    Adjust env-var values for your provider in $(detect_shell_rc)
+    The shell block records SETTINGS_OPENCODE_REPO in $(detect_shell_rc)
     Re-run anytime: $REPO_DIR/install.sh
     Uninstall:     $REPO_DIR/install.sh --uninstall
 EOF
@@ -1585,7 +1578,7 @@ EOF
            opencode
            /plan add a TODO list to my homepage
 
-    Adjust env-var values for your provider in $(detect_shell_rc)
+    The shell block records SETTINGS_OPENCODE_REPO in $(detect_shell_rc)
     Re-run anytime: $REPO_DIR/install.sh
     Uninstall:     $REPO_DIR/install.sh --uninstall
 EOF
@@ -1647,8 +1640,8 @@ run_uninstall() {
         return 0
     fi
 
-    # The env block (repo-path export, model/reasoning defaults, settings-sync
-    # command) is harness-independent — remove it regardless of --no-opencode.
+    # The env block (repo-path export and settings-sync command) is
+    # harness-independent — remove it regardless of --no-opencode.
     local rc
     rc="$(detect_shell_rc)"
     [ -n "$rc" ] && remove_env_block "$rc" || warn "no known shell rc detected, skipping env block"
@@ -1916,7 +1909,7 @@ if [ "$SKIP_OPENCODE" != "1" ]; then
         fi
         if [ "$LOCAL_MODE" = "1" ]; then
             step "Shell environment variables — skipped (--local does not modify global rc)"
-            info "To use per-project env vars, add the following to a .envrc or source it manually:"
+            info "OpenCode uses the session model. Optional repo-path block for a project .envrc:"
             printf "\n"
             env_block_content | sed 's/^/        /'
             printf "\n"
@@ -1931,8 +1924,8 @@ install_notify_scripts
 install_agent_harness_scripts
 merge_agent_harness_settings
 
-# The repo-path export, model/reasoning defaults, and the global settings-sync
-# command are harness-independent — install them in global mode regardless of
+# The repo-path export and the global settings-sync command are
+# harness-independent — install them in global mode regardless of
 # --no-opencode/--no-claude. Never touches global rc in --local mode.
 if [ "$LOCAL_MODE" != "1" ]; then
     install_env_vars
