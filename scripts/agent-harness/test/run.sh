@@ -3743,6 +3743,9 @@ dst = Path(sys.argv[2]).read_text().replace(
     "${TMPDIR:-/tmp}/fmflurry-harness/state/notify",
     "$HOME/.claude/state/notify",
 ).replace(
+    "$HOME/.fmflurry-harness/state/notify",
+    "$HOME/.claude/state/notify",
+).replace(
     "${CURSOR_PLUGIN_ROOT:-/nonexistent}/scripts/agent-harness",
     "$HOME/.claude/scripts/agent-harness",
 )

@@ -14,6 +14,17 @@ if [ "${AGENT_HARNESS_TEST:-}" = "1" ] && [ -z "${AGENT_HARNESS_KPI_LOG:-}" ]; t
 fi
 command -v jq >/dev/null 2>&1 || exit 0
 
+if [ "${AGENT_HARNESS_TEST:-}" != "1" ] && [ "${AGENT_HARNESS_KPI_DETACHED:-}" != "1" ]; then
+  export AGENT_HARNESS_KPI_DETACHED=1
+  if [ $# -eq 0 ]; then
+    _payload="$(cat 2>/dev/null || true)"
+    ( printf '%s' "$_payload" | "${BASH:-bash}" "$0" "$@" >/dev/null 2>&1 & )
+  else
+    ( "${BASH:-bash}" "$0" "$@" >/dev/null 2>&1 & )
+  fi
+  exit 0
+fi
+
 HARNESS_VERSION="${AGENT_HARNESS_VERSION:-0.4.46}"
 TRANSCRIPT_MAX=8388608
 
@@ -100,8 +111,11 @@ read_repo() {
   local root remote slug dir
   dir="${ATTR_DIR:-${PWD:-}}"
   [ -n "$dir" ] || { printf unknown; return; }
-  root="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || { printf unknown; return; }
-  remote="$(git -C "$root" remote get-url origin 2>/dev/null || true)"
+  git_q -C "$dir" rev-parse --show-toplevel || { printf unknown; return; }
+  root="$GIT_Q"
+  [ -n "$root" ] || { printf unknown; return; }
+  git_q -C "$root" remote get-url origin || true
+  remote="$GIT_Q"
   if [ -n "$remote" ]; then
     slug="$(printf '%s' "$remote" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#^[^@]+@##; s#:[0-9]+/#/#; s#\.git$##; s#^[^/:]+[:/]##')"
     if [[ "$slug" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
@@ -121,7 +135,8 @@ read_branch() {
   local b dir
   dir="${ATTR_DIR:-${PWD:-}}"
   [ -n "$dir" ] || { printf unknown; return; }
-  b="$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  git_q -C "$dir" rev-parse --abbrev-ref HEAD || true
+  b="$GIT_Q"
   if [[ "$b" =~ ^[A-Za-z0-9._/-]+$ ]] && [ "${#b}" -le 200 ] && [ "$b" != HEAD ]; then
     printf '%s' "$b"
   else
@@ -153,8 +168,63 @@ note_mark() {
   esac
 }
 
+GIT_CALLS=0
+GIT_CALL_MAX=12
+GIT_Q=""
+
+git_q() {
+  local out pid rc watch child
+  GIT_Q=""
+  [ "${GIT_CALLS:-0}" -lt "$GIT_CALL_MAX" ] || return 1
+  GIT_CALLS=$((GIT_CALLS + 1))
+  out="$(mktemp 2>/dev/null)" || return 1
+  git "$@" >"$out" 2>/dev/null &
+  pid=$!
+  (
+    sleep 1
+    kill "$pid" 2>/dev/null
+  ) &
+  watch=$!
+  wait "$pid"
+  rc=$?
+  child="$(ps -e -o pid=,ppid= 2>/dev/null | awk -v p="$watch" '$2 == p { print $1 }')"
+  if [ -n "$child" ]; then
+    kill $child 2>/dev/null || true
+  fi
+  kill "$watch" 2>/dev/null || true
+  wait "$watch" 2>/dev/null || true
+  if [ "$rc" -eq 0 ]; then
+    IFS= read -r GIT_Q <"$out" || true
+  fi
+  rm -f "$out"
+  return "$rc"
+}
+
+path_is_abs() {
+  case "$1" in
+    /*|[A-Za-z]:[/\\]*|\\\\*|//*) return 0 ;;
+  esac
+  return 1
+}
+
+to_posix() {
+  local u
+  if command -v cygpath >/dev/null 2>&1; then
+    u="$(cygpath -u -- "$1" 2>/dev/null || cygpath -u "$1" 2>/dev/null || true)"
+    if [ -n "$u" ]; then
+      printf '%s' "$u"
+      return 0
+    fi
+  fi
+  printf '%s' "$1"
+}
+
 in_git() {
-  [ -n "$1" ] && [ -d "$1" ] && git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1
+  local d="$1"
+  [ -n "$d" ] || return 1
+  path_is_abs "$d" && d="$(to_posix "$d")"
+  [ -d "$d" ] || return 1
+  git_q -C "$d" rev-parse --is-inside-work-tree >/dev/null
 }
 
 abs_dir() {
@@ -163,13 +233,12 @@ abs_dir() {
   case "$p" in
     *'$'*|*'`'*) return 1 ;;
   esac
-  case "$p" in
-    /*) ;;
-    *)
-      [ -n "$base" ] || return 1
-      p="$base/$p"
-      ;;
-  esac
+  if path_is_abs "$p"; then
+    p="$(to_posix "$p")"
+  else
+    [ -n "$base" ] || return 1
+    p="$base/$p"
+  fi
   if [ -d "$p" ]; then
     (cd "$p" && pwd -P) 2>/dev/null
     return
@@ -182,87 +251,122 @@ abs_dir() {
   return 1
 }
 
-command_target() {
-  local cmd="$1" base="$2" s n i c tok q cand top base_top fallback t u j
-  [ -n "$cmd" ] || return 1
-  [ "${#cmd}" -le 20000 ] || return 1
-  s="$(printf '%s' "$cmd" | sed -E 's/\$\([^)]*\)/ /g; s/`[^`]*`/ /g')"
-  local -a TOKENS=()
+shell_sep() {
+  case "$1" in
+    '&&'|'||'|'|'|';'|'&'|'('|')'|'{'|'}') return 0 ;;
+  esac
+  return 1
+}
+
+split_shell() {
+  local s="$1" i=0 n c cur="" nxt
+  CMD_TOKENS=()
   n=${#s}
-  i=0
-  tok=""
-  q=""
   while [ "$i" -lt "$n" ]; do
     c="${s:i:1}"
-    if [ -n "$q" ]; then
-      if [ "$c" = "$q" ]; then q=""; else tok="$tok$c"; fi
-    elif [ "$c" = "'" ] || [ "$c" = '"' ]; then
-      q="$c"
+    if [ "$c" = "'" ] || [ "$c" = '"' ]; then
+      i=$((i + 1))
+      while [ "$i" -lt "$n" ] && [ "${s:i:1}" != "$c" ]; do
+        cur="$cur${s:i:1}"
+        i=$((i + 1))
+      done
     elif [[ "$c" == [[:space:]] ]]; then
-      if [ -n "$tok" ]; then TOKENS+=("$tok"); tok=""; fi
+      if [ -n "$cur" ]; then CMD_TOKENS+=("$cur"); cur=""; fi
+    elif [ "$c" = '&' ] || [ "$c" = '|' ] || [ "$c" = ';' ] || [ "$c" = '(' ] || [ "$c" = ')' ] || [ "$c" = '{' ] || [ "$c" = '}' ]; then
+      if [ -n "$cur" ]; then CMD_TOKENS+=("$cur"); cur=""; fi
+      nxt="${s:i+1:1}"
+      if [ "$c" = '&' ] && [ "$nxt" = '&' ]; then
+        CMD_TOKENS+=("&&")
+        i=$((i + 1))
+      elif [ "$c" = '|' ] && [ "$nxt" = '|' ]; then
+        CMD_TOKENS+=("||")
+        i=$((i + 1))
+      else
+        CMD_TOKENS+=("$c")
+      fi
     else
-      tok="$tok$c"
+      cur="$cur$c"
     fi
     i=$((i + 1))
   done
-  [ -n "$tok" ] && TOKENS+=("$tok")
+  if [ -n "$cur" ]; then CMD_TOKENS+=("$cur"); fi
+}
+
+command_target() {
+  local cmd="$1" base="$2" s i t nxt sep cand gdir j u
+  local sim="" last=""
+  [ -n "$cmd" ] || return 1
+  [ "${#cmd}" -le 20000 ] || return 1
+  s="$(printf '%s' "$cmd" | sed -E 's/\$\([^)]*\)/ /g; s/`[^`]*`/ /g')"
+  split_shell "$s"
+  sim="$(abs_dir "$base" "${PWD:-}" || true)"
+  [ -n "$sim" ] || sim="$base"
   i=0
-  while [ "$i" -lt "${#TOKENS[@]}" ]; do
-    t="${TOKENS[$i]}"
+  while [ "$i" -lt "${#CMD_TOKENS[@]}" ]; do
+    [ "$GIT_CALLS" -lt "$GIT_CALL_MAX" ] || break
+    t="${CMD_TOKENS[$i]}"
+    if shell_sep "$t"; then
+      i=$((i + 1))
+      continue
+    fi
+    if [ "$t" = cd ]; then
+      nxt="${CMD_TOKENS[$((i + 1))]:-}"
+      sep="${CMD_TOKENS[$((i + 2))]:-}"
+      if [ -n "$nxt" ] && { [ "$sep" = "&&" ] || [ "$sep" = ";" ]; }; then
+        cand="$(abs_dir "$nxt" "$sim" || true)"
+        if [ -n "$cand" ] && [ -d "$cand" ]; then
+          sim="$cand"
+          if in_git "$cand"; then last="$cand"; fi
+        fi
+        i=$((i + 3))
+      else
+        i=$((i + 1))
+      fi
+      continue
+    fi
     case "$t" in
       git|*/git)
+        gdir=""
         j=$((i + 1))
-        while [ "$j" -lt "${#TOKENS[@]}" ]; do
-          u="${TOKENS[$j]}"
+        while [ "$j" -lt "${#CMD_TOKENS[@]}" ]; do
+          u="${CMD_TOKENS[$j]}"
+          if shell_sep "$u"; then break; fi
           case "$u" in
             -C|--work-tree)
               j=$((j + 1))
-              if [ "$j" -lt "${#TOKENS[@]}" ]; then
-                cand="$(abs_dir "${TOKENS[$j]}" "$base" || true)"
-                if in_git "$cand"; then printf '%s' "$cand"; return 0; fi
-              fi
+              if [ "$j" -lt "${#CMD_TOKENS[@]}" ]; then gdir="${CMD_TOKENS[$j]}"; fi
               ;;
             -C=*|--work-tree=*)
-              cand="$(abs_dir "${u#*=}" "$base" || true)"
-              if in_git "$cand"; then printf '%s' "$cand"; return 0; fi
+              gdir="${u#*=}"
               ;;
-            -c|--git-dir|--namespace) j=$((j + 1)) ;;
+            -c|--git-dir|--namespace)
+              j=$((j + 1))
+              ;;
             -*) ;;
             *) break ;;
           esac
           j=$((j + 1))
         done
-        ;;
-    esac
-    i=$((i + 1))
-  done
-  i=0
-  while [ "$i" -lt "${#TOKENS[@]}" ]; do
-    if [ "${TOKENS[$i]}" = cd ] && [ $((i + 2)) -lt "${#TOKENS[@]}" ] && [ "${TOKENS[$((i + 2))]}" = "&&" ]; then
-      cand="$(abs_dir "${TOKENS[$((i + 1))]}" "$base" || true)"
-      if in_git "$cand"; then printf '%s' "$cand"; return 0; fi
-    fi
-    i=$((i + 1))
-  done
-  base_top=""
-  [ -n "$base" ] && base_top="$(git -C "$base" rev-parse --show-toplevel 2>/dev/null || true)"
-  fallback=""
-  for t in "${TOKENS[@]}"; do
-    case "$t" in
-      /*)
-        cand="$(abs_dir "$t" "$base" || true)"
-        in_git "$cand" || continue
-        top="$(git -C "$cand" rev-parse --show-toplevel 2>/dev/null || true)"
-        if [ -n "$base_top" ] && [ -n "$top" ] && [ "$top" != "$base_top" ]; then
-          printf '%s' "$cand"
-          return 0
+        if [ -n "$gdir" ]; then
+          cand="$(abs_dir "$gdir" "$sim" || true)"
+        else
+          cand="$sim"
         fi
-        [ -n "$fallback" ] || fallback="$cand"
+        if in_git "$cand"; then last="$cand"; fi
+        if [ "$j" -le "$i" ]; then j=$((i + 1)); fi
+        i="$j"
+        ;;
+      *)
+        if path_is_abs "$t"; then
+          cand="$(abs_dir "$t" "$sim" || true)"
+          if in_git "$cand"; then last="$cand"; fi
+        fi
+        i=$((i + 1))
         ;;
     esac
   done
-  [ -n "$fallback" ] || return 1
-  printf '%s' "$fallback"
+  [ -n "$last" ] || return 1
+  printf '%s' "$last"
 }
 
 resolve_attr() {
@@ -278,10 +382,9 @@ resolve_attr() {
     cand="$(abs_dir "$attr_file" "$base" || true)"
     if in_git "$cand"; then ATTR_DIR="$cand"; attr_explicit=1; return 0; fi
   fi
-  if [ -n "$attr_cwd" ] && in_git "$attr_cwd"; then
-    ATTR_DIR="$attr_cwd"
-    attr_explicit=1
-    return 0
+  if [ -n "$attr_cwd" ]; then
+    cand="$(abs_dir "$attr_cwd" "${PWD:-}" || true)"
+    if in_git "$cand"; then ATTR_DIR="$cand"; attr_explicit=1; return 0; fi
   fi
   ATTR_DIR="${PWD:-}"
   attr_explicit=0
@@ -613,7 +716,9 @@ project_hook_owns_emit() {
     "${HOME:-}/.claude/hooks" | "${HOME:-}/.config/opencode/scripts/agent-harness/hooks") ;;
     *) return 1 ;;
   esac
-  top="$(git rev-parse --show-toplevel 2>/dev/null)" || return 1
+  git_q rev-parse --show-toplevel || return 1
+  top="$GIT_Q"
+  [ -n "$top" ] || return 1
   for proj in "$top/.claude/hooks/kpi-emit.sh" "$top/.opencode/hooks/kpi-emit.sh"; do
     [ -f "$proj" ] || continue
     pdir="$(cd "$(dirname "$proj")" && pwd -P 2>/dev/null)" || continue

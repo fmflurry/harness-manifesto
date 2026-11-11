@@ -443,24 +443,31 @@ test('pre-tool-use keeps task markers under home and rejects a session id with /
   }
   assert.deepEqual(fs.readdirSync(outside), []);
   assert.equal(fs.existsSync(path.join(outside, 'inflight', 'use-1')), false);
-  const marker = spawnSync('bash', [scripts[1]], {
-    encoding: 'utf8',
-    input: JSON.stringify({
-      tool_name: 'Task',
-      session_id: 'sess-ok',
-      tool_use_id: 'use-ok',
-      tool_input: { subagent_type: 'coder' },
-    }),
-    env: {
-      HOME: home,
-      PATH: process.env.PATH,
-      TMPDIR: outside,
-      AGENT_HARNESS_KPI: '0',
-    },
-  });
-  assert.equal(marker.status, 0, marker.stderr);
-  assert.equal(fs.existsSync(path.join(notify, 'sess-ok', 'inflight', 'use-ok')), true);
+  const markerHomes = [
+    path.join(home, '.claude', 'state', 'notify'),
+    path.join(home, '.fmflurry-harness', 'state', 'notify'),
+  ];
+  for (const [script, markerHome] of scripts.map((script, i) => [script, markerHomes[i]])) {
+    const marker = spawnSync('bash', [script], {
+      encoding: 'utf8',
+      input: JSON.stringify({
+        tool_name: 'Task',
+        session_id: 'sess-ok',
+        tool_use_id: 'use-ok',
+        tool_input: { subagent_type: 'coder' },
+      }),
+      env: {
+        HOME: home,
+        PATH: process.env.PATH,
+        TMPDIR: outside,
+        AGENT_HARNESS_KPI: '0',
+      },
+    });
+    assert.equal(marker.status, 0, marker.stderr);
+    assert.equal(fs.existsSync(path.join(markerHome, 'sess-ok', 'inflight', 'use-ok')), true);
+  }
   assert.equal(fs.existsSync(path.join(notify, 'sess-ok', 'inflight', '..', 'use')), false);
+  assert.equal(fs.existsSync(path.join(home, '.fmflurry-harness', 'state', 'notify', 'sess-ok', 'inflight', '..', 'use')), false);
 });
 
 test('CLI reviews and guard events keep a real session and host, or mark the gap', () => {

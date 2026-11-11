@@ -9,6 +9,9 @@
 
 INPUT=$(cat 2>/dev/null)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+case "$SESSION_ID" in
+  *'/'*|*'\\'*|*'..'*) exit 0 ;;
+esac
 
 # Resolve the notify scripts dir: installed location first, repo-relative
 # fallback last (so running out of the repo checkout still works).

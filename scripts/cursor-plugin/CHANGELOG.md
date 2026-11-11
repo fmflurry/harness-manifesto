@@ -5,6 +5,7 @@ Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cur
 ## [0.4.46] - 2026-11-11
 
 - KPI events take repo and branch from the session worktree (`cwd`, `git -C`, `cd`, absolute paths, and file paths) and from a session binding or a `Session-Id` trailer. A feature report with no session capture shows N/A instead of 0.
+- A shell command keeps the last worktree it enters. Drive-letter and UNC paths count as absolute. Git probes stop after about a second, and the emit does not block the hook. A session id containing `/` or `..` does not create a task-marker path. Cursor markers stay under `$HOME/.fmflurry-harness`, not a shared temp directory.
 
 ## [0.4.45] - 2026-11-10
 

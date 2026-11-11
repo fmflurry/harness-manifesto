@@ -115,6 +115,16 @@ AGENT_HARNESS_KPI_COMMAND="$(printf '%s' "$INPUT" | jq -r '.command // .tool_inp
 AGENT_HARNESS_KPI_FILE="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // .tool_input.filePath // .file_path // empty' 2>/dev/null || true)"
 export AGENT_HARNESS_KPI_CWD AGENT_HARNESS_KPI_COMMAND AGENT_HARNESS_KPI_FILE
 
+if [ "${SCRIPT##*/}" = "kpi-emit.sh" ]; then
+  if [ "${AGENT_HARNESS_TEST:-}" = 1 ]; then
+    printf '%s' "$PAYLOAD" | "${BASH:-bash}" "$SCRIPT" >/dev/null 2>&1 || true
+  else
+    ( printf '%s' "$PAYLOAD" | "${BASH:-bash}" "$SCRIPT" >/dev/null 2>&1 & )
+  fi
+  printf '{}\n'
+  exit 0
+fi
+
 ERR_FILE="$(mktemp 2>/dev/null)" || allow_and_exit
 OUT="$(printf '%s' "$PAYLOAD" | "${BASH:-bash}" "$SCRIPT" 2>"$ERR_FILE")"
 RC=$?

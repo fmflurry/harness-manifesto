@@ -61,15 +61,13 @@ The same facts are kept in `bindings.json` next to the log, keyed by `session_id
 
 ## Which directory an event belongs to
 
-The hook's own working directory is the last choice. The command text is read only to find a directory, then discarded. It is not written to the log.
+The hook's own working directory is the last choice. The command text is read only to find a directory, then discarded. It is not written to the log. Each git lookup is abandoned after about a second, and walking one command stops after 12 lookups. Outside the test suite the emit returns immediately and finishes in the background.
 
-1. `git -C <dir>` or `git --work-tree <dir>` in a shell command.
-2. `cd <dir> &&` in that command.
-3. An absolute path in the command that sits inside a worktree. A worktree other than the hook's checkout wins.
-4. `file_path`, `path`, or `filePath` on the tool input, resolved against the payload directory.
-5. The payload `cwd` when it is inside a git checkout. OpenCode passes the same hints through `AGENT_HARNESS_KPI_CWD`, `AGENT_HARNESS_KPI_COMMAND`, and `AGENT_HARNESS_KPI_FILE`. Those variables are not log fields.
-6. The session binding, when nothing above named a directory.
-7. The hook process directory.
+1. The shell command, walked left to right. `&&`, `;`, `|`, `||`, `&`, `(`, `)`, `{`, and `}` are their own tokens. A simulated directory starts at the payload directory, or the hook directory when that is missing. `cd <dir>` moves it when the next token is `&&` or `;`. `git -C` and `git --work-tree` are resolved from the simulated directory, so `git -C .` after `cd` is that directory. An absolute path is also a target, including a Windows drive letter (`C:/`, `C:\`) and a UNC path. When `cygpath` exists, `cygpath -u` turns that path into a POSIX path. The last directory that is inside a git checkout wins.
+2. `file_path`, `path`, or `filePath` on the tool input, resolved against the payload directory.
+3. The payload `cwd` when it is inside a git checkout. OpenCode passes the same hints through `AGENT_HARNESS_KPI_CWD`, `AGENT_HARNESS_KPI_COMMAND`, and `AGENT_HARNESS_KPI_FILE`. Those variables are not log fields.
+4. The session binding, when nothing above named a directory.
+5. The hook process directory.
 
 Repo comes from `git -C <dir> remote get-url origin`. Branch comes from `git -C <dir> rev-parse --abbrev-ref HEAD`.
 

@@ -39,16 +39,24 @@ esac
 
 # Task-marker increment: track in-flight subagents so notify-gate.sh can
 # suppress notifications until the last dispatched subagent has stopped.
+marker_id_ok() {
+  case "$1" in
+    *'/'*|*'\\'*|*'..'*) return 1 ;;
+  esac
+  return 0
+}
 TASK_MARKER_INPUT=$(cat 2>/dev/null)
 TASK_MARKER_TOOL_NAME=$(echo "$TASK_MARKER_INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 case "$TASK_MARKER_TOOL_NAME" in
   Task|Agent)
     TASK_MARKER_SESSION_ID=$(echo "$TASK_MARKER_INPUT" | jq -r '.session_id // empty' 2>/dev/null)
     TASK_MARKER_USE_ID=$(echo "$TASK_MARKER_INPUT" | jq -r '.tool_use_id // empty' 2>/dev/null)
-    [ -n "$TASK_MARKER_USE_ID" ] || TASK_MARKER_USE_ID="$(date +%s%N)-$$"
-    TASK_MARKER_STATE="${NOTIFY_STATE_DIR:-${TMPDIR:-/tmp}/fmflurry-harness/state/notify}/$TASK_MARKER_SESSION_ID"
-    mkdir -p "$TASK_MARKER_STATE/inflight" 2>/dev/null
-    touch "$TASK_MARKER_STATE/inflight/$TASK_MARKER_USE_ID" 2>/dev/null
+    if marker_id_ok "$TASK_MARKER_SESSION_ID" && { [ -z "$TASK_MARKER_USE_ID" ] || marker_id_ok "$TASK_MARKER_USE_ID"; }; then
+      [ -n "$TASK_MARKER_USE_ID" ] || TASK_MARKER_USE_ID="$(date +%s%N)-$$"
+      TASK_MARKER_STATE="${NOTIFY_STATE_DIR:-$HOME/.fmflurry-harness/state/notify}/$TASK_MARKER_SESSION_ID"
+      mkdir -p "$TASK_MARKER_STATE/inflight" 2>/dev/null
+      touch "$TASK_MARKER_STATE/inflight/$TASK_MARKER_USE_ID" 2>/dev/null
+    fi
     ;;
 esac
 
@@ -85,11 +93,19 @@ if [ -n "$KPI_TOOL" ] && [ -f "$KPI_SH" ]; then
   [ -n "$KPI_CWD" ] && export AGENT_HARNESS_KPI_CWD="$KPI_CWD"
   [ -n "$KPI_COMMAND" ] && export AGENT_HARNESS_KPI_COMMAND="$KPI_COMMAND"
   [ -n "$KPI_FILE" ] && export AGENT_HARNESS_KPI_FILE="$KPI_FILE"
-  "$KPI_SH" "${KPI_ARGS[@]}" >/dev/null 2>&1 || true
+  if [ "${AGENT_HARNESS_TEST:-}" = 1 ]; then
+    "$KPI_SH" "${KPI_ARGS[@]}" >/dev/null 2>&1 || true
+  else
+    ( "$KPI_SH" "${KPI_ARGS[@]}" >/dev/null 2>&1 & )
+  fi
   case "$KPI_TOOL" in
     Task|Agent|task|agent)
       KPI_ARGS[0]=subagent_spawn
-      "$KPI_SH" "${KPI_ARGS[@]}" >/dev/null 2>&1 || true
+      if [ "${AGENT_HARNESS_TEST:-}" = 1 ]; then
+        "$KPI_SH" "${KPI_ARGS[@]}" >/dev/null 2>&1 || true
+      else
+        ( "$KPI_SH" "${KPI_ARGS[@]}" >/dev/null 2>&1 & )
+      fi
       ;;
   esac
 fi
