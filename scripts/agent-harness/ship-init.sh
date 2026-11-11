@@ -4,7 +4,8 @@
 # default branch (or the PR head), record it in the goal registry and print its path.
 set -euo pipefail
 # shellcheck source=scripts/agent-harness/lib.sh
-. "${BASH_SOURCE[0]%/*}/lib.sh"
+_here="${BASH_SOURCE[0]//\\//}"
+. "${_here%/*}/lib.sh"
 usage='usage: ship-init.sh <type> <scope> <desc> [--goal "<text>"] | --adopt <pr> [--goal "<text>"]'
 die() { echo "ship-init: $1" >&2; exit 1; }
 

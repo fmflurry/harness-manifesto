@@ -60,7 +60,8 @@ case "$TASK_MARKER_TOOL_NAME" in
     ;;
 esac
 
-KPI_SH="${BASH_SOURCE[0]%/*}/kpi-emit.sh"
+KPI_SELF="${BASH_SOURCE[0]//\\//}"
+KPI_SH="${KPI_SELF%/*}/kpi-emit.sh"
 KPI_TOOL="${TASK_MARKER_TOOL_NAME:-$TOOL_NAME}"
 if [ -n "$KPI_TOOL" ] && [ -f "$KPI_SH" ]; then
   KPI_SESSION="$(printf '%s' "${TASK_MARKER_INPUT:-}" | jq -r '.session_id // empty' 2>/dev/null || true)"

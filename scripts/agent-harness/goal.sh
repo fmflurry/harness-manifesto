@@ -3,7 +3,8 @@
 # Usage: goal.sh set "<goal>" [criteria...] | pr <n> | backup-add <branch> | sha <headsha> | review <code|security> <pass|fail> | bump (findings on stdin) | wait "<reason>" --ttl <N><s|m|h> | escalate "<reason>" | reset [--field stop_blocks|total_blocks|gate|wait|all] | status | decisions-path | clear
 set -euo pipefail
 # shellcheck source=scripts/agent-harness/lib.sh
-. "${BASH_SOURCE[0]%/*}/lib.sh"
+_here="${BASH_SOURCE[0]//\\//}"
+. "${_here%/*}/lib.sh"
 mkdir -p "$STATE_DIR"
 kpi_bind_linked_worktree() {
   local dir gd gcd
