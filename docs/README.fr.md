@@ -198,7 +198,7 @@ cd ~/Workspace/harness-manifesto
 3. Lancer `bun install` (ou `npm ci` si Bun n'est pas disponible).
 4. Synchroniser les skills de l'ensemble canonique vers les deux harnesses via `scripts/sync-skills.sh`.
 5. Amorcer les fichiers de config personnelle (`settings.json`, `settings.local.json`, `policy-limits.json`) **seulement à la première install** ; préserver les éditions utilisateur à la réinstall.
-6. Ajouter les défauts `OPENCODE_MODEL_*` et `OPENCODE_REASONING_*` au shell rc, encadrés par des marqueurs pour que les relances et les désinstallations soient idempotentes (OpenCode seulement, sauté si `--local`).
+6. Écrire un bloc de shell encadré par des marqueurs qui enregistre `SETTINGS_OPENCODE_REPO` (OpenCode seulement, sauté si `--local`). Une relance remplace le bloc et retire les anciens exports `OPENCODE_MODEL_*` et `OPENCODE_REASONING_*`. Le bloc ne pose pas de modèle.
 7. **Claude Code** (si choisi) : fusionner `.claude/` dans `~/.claude` (ou `./.claude` si `--local`).
 8. Afficher une commande de smoke test et les endroits à ajuster ensuite.
 
@@ -210,7 +210,7 @@ Drapeaux utiles :
 | `--yes`, `-y`   | Non interactif — accepter tous les défauts : OpenCode ✓, Claude Code ✓. Monolith est le défaut, y compris une install globale. Les répertoires normaux existants sont fusionnés, pas retirés ni sauvegardés. |
 | `--variant`     | `monolith` (défaut) ou `conductor`. `orchestration` est un alias de `conductor`. Identique à `HARNESS_VARIANT`. Le drapeau l'emporte sur l'env. Sans aucun des deux, Monolith est le défaut, y compris un `--yes` global. `conductor` sélectionne Conductor. |
 | `--status`      | Affiche la variante installée pour OpenCode et Claude Code, puis sort. `--local` affiche aussi `./.cursor`, `./.agents`, l'overlay `.harness-local`, les entrées exclude, et l'état domain-rules. Un marqueur `orchestration` est rapporté comme Conductor. |
-| `--local`       | Installation au niveau du projet dans le répertoire courant (`./.opencode`, `./.claude` comme frères indépendants) et vendore `./AGENTS.md`, `./.cursor/rules` et `./.agents`. Applique `.harness-local/` par-dessus et élague `.harness-local/exclude`. Saute le bloc d'env global du shell rc (l'affiche comme indication à la place). La variante par défaut est Monolith. |
+| `--local`       | Installation au niveau du projet dans le répertoire courant (`./.opencode`, `./.claude` comme frères indépendants) et vendore `./AGENTS.md`, `./.cursor/rules` et `./.agents`. Applique `.harness-local/` par-dessus et élague `.harness-local/exclude`. Saute le bloc d'env global du shell rc et affiche le bloc du chemin du dépôt à la place. Ce bloc ne pose pas de modèle. La variante par défaut est Monolith. |
 | `--opencode`    | **Liste d'autorisation :** installer OpenCode seulement (combiné à d'autres drapeaux, seuls ceux-là sont installés).                                                                        |
 | `--claude`      | **Liste d'autorisation :** installer Claude Code seulement.                                                                                                                                 |
 | `--no-opencode` | **Refus :** sauter OpenCode entièrement (copie du dépôt, dépendances et bloc d'env). Peut se combiner avec d'autres cibles.                                                                 |
@@ -248,20 +248,14 @@ Le script écrit un bloc encadré dans votre shell rc (`~/.zshrc`, `~/.bashrc`, 
 
 ```bash
 # >>> settings-opencode >>>
-# Added by settings-opencode installer. Edit values to match your provider.
-# Defaults target the myMistral provider configured in opencode.jsonc.
-export OPENCODE_MODEL_CONDUCTOR="myMistral/mistral-medium-2604"
-export OPENCODE_MODEL_SUBAGENT_PLANNER="myMistral/mistral-large-latest"
-export OPENCODE_MODEL_SUBAGENT_WORKER="myMistral/mistral-medium-latest"
-export OPENCODE_MODEL_SUBAGENT_MINI="myMistral/mistral-small-latest"
-export OPENCODE_REASONING_CONDUCTOR="high"
-export OPENCODE_REASONING_PRIMARY="high"
-export OPENCODE_REASONING_SECONDARY="medium"
-export OPENCODE_REASONING_TERTIARY="low"
+# Added by settings-opencode installer.
+# To remove this block, run: settings-sync --uninstall
+# OpenCode agents inherit the session model. This block does not set one.
+export SETTINGS_OPENCODE_REPO="/path/to/harness-manifesto"
 # <<< settings-opencode <<<
 ```
 
-Éditez les valeurs à l'intérieur des marqueurs pour pointer vers le fournisseur que vous utilisez. Relancer `./install.sh` réécrit le même bloc ; `./install.sh --uninstall` le retire proprement.
+Relancer `./install.sh` réécrit le bloc. `./install.sh --uninstall` le retire. OpenCode n'y lit pas de modèle.
 
 Si votre shell n'est pas bash/zsh/fish, le script affiche le bloc d'env à coller à la main et continue le reste de l'installation.
 
@@ -290,25 +284,11 @@ bun install        # uses bun.lock
 npm ci
 ```
 
-#### 3. Poser les variables d'environnement de modèle et de raisonnement
+#### 3. Laisser le modèle non défini
 
-Le bloc `agent` de `opencode.jsonc` est paramétré par des variables d'env pour changer de fournisseur sans éditer la config. Ajoutez ceci à votre profil de shell (`~/.zshrc`, `~/.bashrc`, etc.) :
+Le harness ne pose pas de modèle OpenCode. Un agent principal sans `model` utilise le modèle choisi pour la session, ou votre défaut OpenCode. Un sous-agent sans `model` utilise le modèle de l'agent qui l'a lancé. Voir [les agents OpenCode](https://opencode.ai/docs/agents).
 
-```bash
-# Required (OpenCode model identifiers — adjust to whatever provider you use)
-export OPENCODE_MODEL_CONDUCTOR="myMistral/mistral-medium-2604"
-export OPENCODE_MODEL_SUBAGENT_PLANNER="myMistral/mistral-large-latest"
-export OPENCODE_MODEL_SUBAGENT_WORKER="myMistral/mistral-medium-latest"
-export OPENCODE_MODEL_SUBAGENT_MINI="myMistral/mistral-small-latest"
-
-# Reasoning effort tiers
-export OPENCODE_REASONING_CONDUCTOR="high"
-export OPENCODE_REASONING_PRIMARY="high"
-export OPENCODE_REASONING_SECONDARY="medium"
-export OPENCODE_REASONING_TERTIARY="low"
-```
-
-Si votre fournisseur ne supporte pas `reasoningEffort`, OpenCode l'ignore en silence — n'importe quelle valeur convient.
+Pour épingler un agent, posez `model` sur cet agent dans votre propre config OpenCode. N'attendez pas `OPENCODE_MODEL_*` ni `OPENCODE_REASONING_*`. L'installeur ne les écrit plus, et `opencode.jsonc` n'interpolait jamais les variables de raisonnement. Le bloc `myMistral` reste une définition de fournisseur. Rien ne le sélectionne, sauf vous.
 
 #### 4. Installer les prérequis des serveurs MCP
 
@@ -363,9 +343,11 @@ Puis une commande slash :
 
 Sur Conductor, elle dispatche le sous-agent `planner` et renvoie un plan. Sur Monolith, le défaut d'installation, la même commande charge le skill `planner` dans la session principale.
 
+<a id="modeles-fr"></a>
+
 ### Changer de modèles
 
-OpenCode : éditez les exports `OPENCODE_MODEL_*` / `OPENCODE_REASONING_*` dans votre shell rc (`~/.zshrc`, `~/.bashrc`, …), puis ouvrez un nouveau shell. OpenCode lit ces variables. Claude Code lit `.claude/settings.json`. Cursor lit ses fichiers de tiers.
+OpenCode utilise le modèle de la session pour chaque agent. Choisissez-le dans OpenCode, ou posez votre défaut dans votre propre config OpenCode. Pour épingler un agent, ajoutez `model` à cet agent dans votre propre config. Ce harness n'en pose pas, et une réinstallation n'en remet pas. Voir [les agents OpenCode](https://opencode.ai/docs/agents). Claude Code lit `.claude/settings.json`. Cursor lit ses fichiers de tiers.
 
 Claude Code : l'agent principal (le défaut de session) est `"model": "opus"` dans `.claude/settings.json`, pour Conductor et Monolith. Les tiers des sous-agents restent tels quels. Une install globale fraîche de `~/.claude` et une install projet fraîche de `.claude` reçoivent toutes les deux cet alias. Si `model` est déjà posé, l'installeur laisse cette valeur quand il fusionne les hooks.
 
@@ -592,7 +574,7 @@ Six sujets câblés dans un fichier :
    Le guidage lié à des fichiers reste sur disque et hors de ce tableau : `instructions/code-comments.md`, `instructions/coding-style.md`, `instructions/testing.md`, `instructions/security.md` (le prompt de coder ou de tdd-guide pointe vers eux). Le guidage de situation est un skill : `open-pr-check`, `codebase-exploration`, `harness-parity`, `brief-contract`, `git-workflow`, `worktree-destruction-safety`, `performance`, `patterns`, `hooks`, `agent-roster`.
    > `instructions/caveman-ultra.md` est dans le dépôt mais **n'est pas** dans le tableau `instructions`, donc il n'est pas chargé au démarrage de session.
 2. `default_agent` : `conductor` (orchestrateur seulement — ne peut ni écrire ni éditer).
-3. `agent` : 26 définitions (modèle + effort de raisonnement + prompt + allowlist d'outils). Tous les modèles passent par l'env (`OPENCODE_MODEL_*`, `OPENCODE_REASONING_*`) — voir [Installation publique](#public-install).
+3. `agent` : 26 définitions (prompt + allowlist d'outils). Aucun agent ne pose `model`, et le fichier n'a pas de `model` au niveau racine. Chaque agent utilise le modèle de la session — voir [Changer de modèles](#modeles-fr).
 4. `command` : mappe `/<name>` -> template + sous-agent + `subtask` ; **21** entrées sont épinglées ici.
 5. `mcp` : six serveurs — `code-memory` activé ; `context7`, `blender`, `wallaby`, `Figma`, `smartbear-swagger` désactivés par défaut. Les perms `code-memory_*` sont pré-autorisées pour chaque sous-agent.
 6. `plugins` : le plugin npm `opencode-skill-creator`. OpenCode 2 charge seul les dossiers de plugins locaux sous `plugins/`.
@@ -719,24 +701,17 @@ Ce tableau est le roster **Conductor**, défini dans `opencode.jsonc` sous `agen
 | `database-reviewer`    | lecture seule   | Schéma PostgreSQL/Supabase, perfs de requêtes, RLS, migrations.                                                         | Revue SQL/migration/schéma        |
 | `postgres-dba`         | lecture seule   | Ops d'instance en direct : santé, vacuum/bloat, WAL, backups/PITR, pooling, upgrades. Émet des commandes confirmées par un humain. | `/db-health`, `/db-backup-check`  |
 | `api-spec-architect`   | écriture        | Specs OpenAPI 3.1 conformes Zalando ; publication SwaggerHub optionnelle.                                               | `/api-spec`                       |
-| `git-specialist`       | écriture (git)  | Branches, commits stagés, push, PR. Modèle mini.                                                                        | Tâches git/commit/PR              |
+| `git-specialist`       | écriture (git)  | Branches, commits stagés, push, PR.                                                                                     | Tâches git/commit/PR              |
 | `scout`                | lecture seule   | Émet un manifeste de fichiers pour un périmètre inconnu avant un brief.                                                 | **Triggered-only** par le conducteur |
 | `why-investigator`     | lecture seule   | Enquête une catégorie de preuve pour la justification de conception.                                                    | **Triggered-only** par le skill `why` |
 | `why-synthesizer`      | lecture seule   | Fusionne les findings des enquêteurs en une réponse pondérée par la preuve.                                             | **Triggered-only** par le skill `why` |
 | `gaudi`                | écriture        | Blender / art 3D : modélisation, matériaux, lumière, rendu, export glTF. Pilote le MCP Blender.                          | **Triggered-only** (travail 3D)   |
 
-**Tiers de modèles.** Chaque agent tire son modèle d'une des quatre variables d'env, et l'effort de raisonnement d'un tier :
+**Modèle de session.** Aucun agent de `opencode.jsonc` ne pose `model`, et le fichier n'en pose pas au niveau racine. Un agent principal utilise le modèle choisi pour la session. Un sous-agent utilise le modèle de l'agent qui l'a lancé ([agents OpenCode](https://opencode.ai/docs/agents)). Une installation Monolith fait de même : le générateur n'écrit pas `model`.
 
-| Variable d'env                   | Alimente                                                 |
-| -------------------------------- | -------------------------------------------------------- |
-| `OPENCODE_MODEL_CONDUCTOR`       | `conductor`                                              |
-| `OPENCODE_MODEL_SUBAGENT_PLANNER`| `planner`, `api-spec-architect`, `why-synthesizer`       |
-| `OPENCODE_MODEL_SUBAGENT_WORKER` | `architect`, `coder`, `writer`, `code-reviewer`, et la plupart des reviewers |
-| `OPENCODE_MODEL_SUBAGENT_MINI`   | `git-specialist`, `scout`, `why-investigator`            |
-| `OPENCODE_REASONING_CONDUCTOR`   | effort de raisonnement de `conductor`                    |
-| `OPENCODE_REASONING_PRIMARY`     | tier à effort haut                                       |
-| `OPENCODE_REASONING_SECONDARY`   | tier à effort moyen                                      |
-| `OPENCODE_REASONING_TERTIARY`    | tier à effort bas                                        |
+`OPENCODE_REASONING_*` n'est plus écrit. Ces variables n'étaient exportées que dans le shell. `opencode.jsonc` ne les interpolait pas. Les champs de raisonnement d'une entrée `myMistral` décrivent ce fournisseur. Ils ne choisissent pas le modèle de la session.
+
+Pour épingler un agent, posez `model` sur cet agent dans votre propre config OpenCode. Une réinstallation de ce harness n'ajoute pas d'épingle.
 
 <a id="commands-en"></a>
 
@@ -1187,7 +1162,7 @@ Le fichier orchestre six choses:
 
 1. `instructions`: docs toujours chargees au demarrage (6) — routing sous-agent, question handling, verification gate, autonomie, tool budget, enforcement ladder. Le reste est un skill ou une instruction hors tableau (`code-comments`, `coding-style`, `testing`, `security`).
 2. `default_agent`: `conductor` (orchestrateur sans droit d'ecriture).
-3. `agent`: definitions des sous-agents (modele + reasoning effort + prompt + outils autorises). Tous les modeles passent par variables d'environnement (`OPENCODE_MODEL_*`, `OPENCODE_REASONING_*`).
+3. `agent`: definitions des sous-agents (prompt + outils autorises). Aucun agent ne pose `model`, et le fichier n'a pas de `model` au niveau racine. Chacun utilise le modele de la session.
 4. `command`: mappe `/<name>` -> template + sous-agent + `subtask`; **21** entrees epinglees.
 5. `mcp`: six serveurs — `code-memory` actif; `context7`, `blender`, `wallaby`, `Figma`, `smartbear-swagger` desactives par defaut. Perms `code-memory_*` pre-allowlistees pour chaque sous-agent.
 6. `plugins` : le plugin npm `opencode-skill-creator`. OpenCode 2 charge seul les dossiers de plugins locaux sous `plugins/`.
@@ -1225,13 +1200,17 @@ Ce tableau est le roster **Conductor**, defini dans `opencode.jsonc` (champ `age
 | `database-reviewer`    | read-only        | PostgreSQL/Supabase: schema, perfs, RLS, migrations.                                                              | Revue SQL/migration/schema        |
 | `postgres-dba`         | read-only        | Ops instance live: health, vacuum/bloat, WAL, backups/PITR, pooling, upgrades.                                    | `/db-health`, `/db-backup-check`  |
 | `api-spec-architect`   | writable         | Specs OpenAPI 3.1 Zalando; publication SwaggerHub optionnelle.                                                    | `/api-spec`                       |
-| `git-specialist`       | writable (git)   | Branches, commits, push, PRs. Modele mini.                                                                        | Taches git/commit/PR              |
+| `git-specialist`       | writable (git)   | Branches, commits, push, PRs.                                                                                     | Taches git/commit/PR              |
 | `scout`                | read-only        | Manifeste de fichiers pour un scope inconnu.                                                                      | **Triggered-only** (conductor)    |
 | `why-investigator`     | read-only        | Enquete une categorie de preuve.                                                                                  | **Triggered-only** (skill `why`)  |
 | `why-synthesizer`      | read-only        | Fusionne les findings en une reponse ponderee.                                                                    | **Triggered-only** (skill `why`)  |
 | `gaudi`                | writable         | Blender / art 3D: modelisation, materiaux, lumiere, render, export glTF.                                          | **Triggered-only** (3D)           |
 
-**Tiers de modeles.** Quatre variables d'env: `OPENCODE_MODEL_CONDUCTOR`, `OPENCODE_MODEL_SUBAGENT_PLANNER`, `OPENCODE_MODEL_SUBAGENT_WORKER`, `OPENCODE_MODEL_SUBAGENT_MINI` (git-specialist, scout, why-investigator). Reasoning: `OPENCODE_REASONING_CONDUCTOR`, `OPENCODE_REASONING_PRIMARY`, `OPENCODE_REASONING_SECONDARY`, `OPENCODE_REASONING_TERTIARY`.
+**Modele de session.** Aucun agent de `opencode.jsonc` ne pose `model`, et le fichier n'en pose pas au niveau racine. L'agent principal utilise le modele choisi pour la session. Un sous-agent utilise le modele de l'agent qui l'a lance ([agents OpenCode](https://opencode.ai/docs/agents)). Une install Monolith fait de meme: le generateur n'ecrit pas `model`.
+
+`OPENCODE_REASONING_*` n'est plus ecrit. Ces variables n'etaient exportees que dans le shell. `opencode.jsonc` ne les interpolait pas. Les champs de raisonnement d'une entree `myMistral` decrivent ce fournisseur. Ils ne choisissent pas le modele de la session.
+
+Pour epingler un agent, posez `model` sur cet agent dans votre propre config OpenCode. Une reinstallation de ce harness n'ajoute pas d'epingle.
 
 <a id="harness-fr"></a>
 
