@@ -33,8 +33,6 @@
   ],
   "overlayAgents": ["cop", "comment-judge"],
   "deferredMcp": ["blender", "smartbear-swagger"],
-  "primaryModelEnv": "OPENCODE_MODEL_CONDUCTOR",
-  "reviewModelEnv": "OPENCODE_MODEL_SUBAGENT_PLANNER",
   "descriptions": {
     "code-reviewer": "Reviews a diff for bugs, regressions, missing tests, and broken conventions. Use after a meaningful change or when the user asks for a review. Read-only.",
     "security-reviewer": "Reviews auth, secrets, user input, payments, and personal data. Use when a change touches those surfaces or the user asks for a security review. Read-only.",

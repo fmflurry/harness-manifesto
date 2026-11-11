@@ -99,7 +99,7 @@ OpenCode (`plugins/kpi/index.ts`):
 - `message.updated` stores the latest input+output total per message id. It does not write a line.
 - `session.idle` and `session.deleted` write `session_end` for a root session, or `subagent_stop` with `agent` for a child session. `tokens` is the sum of the stored message totals.
 
-`install.sh` merges `SessionStart` and `PostToolUse` commands for `kpi-emit.sh` into Claude settings. Global installs use `~/.claude/hooks`. Project installs (`--local`) use `./.claude/hooks`. Conductor and Monolith share that merge.
+`install.sh` merges `SessionStart` and `PostToolUse` commands for `kpi-emit.sh` into Claude settings. Global installs use `~/.claude/hooks`. Project installs (`--local`) use `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"`. Conductor and Monolith share that merge. The merge keeps one command per event, matcher, and script. A matcher of `*`, an empty matcher, and a missing matcher are the same match-all.
 
 ## Feature report
 

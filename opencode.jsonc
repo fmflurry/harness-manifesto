@@ -14,7 +14,7 @@
     "conductor": {
       "description": "Primary orchestrator. Routes every task to the matching specialist subagent. CANNOT write or edit files directly \u2014 all writes go through writer (docs) or coder (code).",
       "mode": "primary",
-      "model": "{env:OPENCODE_MODEL_CONDUCTOR}",
+
       "prompt": "{file:prompts/agents/conductor.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -67,7 +67,7 @@
     "planner": {
       "description": "MUST delegate for complex feature planning, implementation plans, large refactors, or unclear execution order. Produces plans only.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_PLANNER}",
+
       "prompt": "{file:prompts/agents/planner.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -82,7 +82,7 @@
     "architect": {
       "description": "MUST delegate for architecture, system design, scalability, cross-module boundaries, or high-impact technical decisions.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/architect.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -97,7 +97,7 @@
     "coder": {
       "description": "MUST delegate for any non-test implementation work: writing new code, applying spec, scaffolding modules, porting code, implementing fixes. Pure implementation only \u2014 caller owns planning, architecture, and review.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/coder.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -115,7 +115,7 @@
     "writer": {
       "description": "MUST delegate for writing or editing non-code text artifacts: documentation, README, markdown, HTML reports, release notes, ADRs, prose, change logs. Forbidden from touching source code files.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/writer.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -133,7 +133,7 @@
     "code-reviewer": {
       "description": "MUST delegate for general diff/PR review of bugs, regressions, quality, maintainability, and tests. Read-only \u2014 findings only, no patches.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/code-reviewer.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -152,7 +152,7 @@
     "comment-judge": {
       "description": "Read-only comment judge. Applies rubric-based verdict to code comments: false/stale (Important), forbidden/narration/noise (Nit), unsure (❓). REVIEW mode for diffs; PURGE mode for directory scans. Emits JSON findings.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/comment-judge.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -182,7 +182,7 @@
     "haruspex-commentorum": {
       "description": "A deranged comment-hater that savors deletion and condemns workaround code.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/haruspex-commentorum.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -201,7 +201,7 @@
     "ecosystem-auditor": {
       "description": "MUST delegate for /ecosystem-audit or explicit audits of the repository-controlled OpenCode/Claude Code ecosystem, skill/agent parity, or harness coherence. Read-only — produces one evidence-first report and makes no changes.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/ecosystem-auditor.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -229,7 +229,7 @@
     "angular-cop": {
       "description": "Angular + TypeScript review specialist (signals, RxJS, clean architecture, flurryx, TS strict). Selected only by an eligible caller; not a /cop-review command owner. Reads project AGENTS.md. Runs tsc + lint. Tiered output (junior/senior). Read-only \u2014 findings only.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/angular-cop.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -248,7 +248,7 @@
     "dotnet-cop": {
       "description": ".NET 10 Minimal API + modular monolith review specialist (ports & adapters, modular isolation, EF Core, C# strictness). Selected only by an eligible caller; not a /cop-review command owner. Reads project AGENTS.md. Runs dotnet build + dotnet format --verify-no-changes. Tiered output (junior/senior). Read-only \u2014 findings only.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/dotnet-cop.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -267,7 +267,7 @@
     "gdpr-specialist": {
       "description": "MUST delegate for GDPR/privacy/data-protection compliance review of code (frontend, backend, database, infrastructure layers, full stack). FRANCE/CNIL-focused: audits against French GDPR rules, CNIL recommendations, Loi Informatique et Libert\u00e9s. Covers consent flows, cookies/trackers, PII handling, data-subject rights, retention policies, DPIA necessities, cross-border transfers, breach notification (72h to CNIL), processor/subcontractor contracts. Read-only \u2014 reports findings and compliance gaps; orchestrator dispatches fixes to coder.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/gdpr-specialist.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -285,7 +285,7 @@
     "security-reviewer": {
       "description": "MUST delegate for auth, user input, API endpoints, secrets, payments, PII, or sensitive data. Read-only — reports vulnerabilities. If the coder agent is installed, the orchestrator dispatches fixes to that agent. Otherwise the main agent applies the fixes.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/security-reviewer.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -302,7 +302,7 @@
     "tdd-guide": {
       "description": "MUST delegate for new features, bug fixes, or refactors that need tests. A refactor pins current behavior first with characterization tests that already pass. Enforces RED-GREEN-REFACTOR for new behavior and 80%+ coverage. Writes test files only; delegates implementation to coder.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/tdd-guide.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -326,7 +326,7 @@
     "build-error-resolver": {
       "description": "MUST delegate when build, typecheck, lint, or TypeScript errors occur. Fixes only those errors with minimal diffs.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/build-error-resolver.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -343,7 +343,7 @@
     "e2e-runner": {
       "description": "MUST delegate for browser automation, Playwright work, and critical user-flow E2E tests. Reads the project e2e override or discovered start command, ports, and test runner. Generates, runs, and reports artifacts.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/e2e-runner.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -360,7 +360,7 @@
     "doc-updater": {
       "description": "MUST delegate for documentation, README updates, architecture notes, and codemaps. Keeps docs aligned with code changes.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/doc-updater.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -377,7 +377,7 @@
     "refactor-cleaner": {
       "description": "MUST delegate for dead code, unused exports, duplication, and consolidation cleanup. Preserves behavior and verifies safety.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/refactor-cleaner.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -394,7 +394,7 @@
     "database-reviewer": {
       "description": "MUST delegate for PostgreSQL, SQL, Supabase, RLS, migrations, schema design, query performance, or DB security. Read-only — findings only; repo changes go to coder.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/database-reviewer.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -411,7 +411,7 @@
     "postgres-dba": {
       "description": "MUST delegate for PostgreSQL instance operations: health monitoring, vacuum/bloat, WAL/checkpoints, backups/PITR, connection pooling, role/RLS runtime audit, container persistence & major-version upgrades. Advisory and read-only — emits human-confirmed commands, never executes mutations. NOT for SQL/migration/schema code review (that is database-reviewer).",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/postgres-dba.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -429,7 +429,7 @@
     "api-spec-architect": {
       "description": "MUST delegate for generating or updating OpenAPI 3.1 specifications and publishing them to SmartBear SwaggerHub. Produces one Zalando-compliant YAML per bounded context and optionally publishes via the SwaggerHub MCP.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_PLANNER}",
+
       "prompt": "{file:prompts/agents/api-spec-architect.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -447,7 +447,7 @@
     "git-specialist": {
       "description": "MUST delegate for branch names, commits, staging, pushes, pull request creation/status, and git hygiene. Performs git-only work safely.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_MINI}",
+
       "prompt": "{file:prompts/agents/git-specialist.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -463,7 +463,7 @@
     "scout": {
       "description": "MUST delegate to resolve unknown/broad file scope before dispatching coder/writer/tdd-guide with a brief. Read-only manifest lookups (code-memory topology, grep, glob) — no writes, no bash, no further delegation.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_MINI}",
+
       "prompt": "{file:prompts/agents/scout.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -482,7 +482,7 @@
     "why-investigator": {
       "description": "Spawned by the why skill only. Investigates one evidence category (git/gh or one MCP source) for design rationale. Read-only.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_MINI}",
+
       "prompt": "{file:prompts/agents/why-investigator.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -500,7 +500,7 @@
     "why-synthesizer": {
       "description": "Spawned by the why skill only. Merges investigator findings into one evidence-weighted answer per synthesizer-prompt.md. Read-only.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_PLANNER}",
+
       "prompt": "{file:prompts/agents/why-synthesizer.txt}",
       "temperature": 0.3,
       "topP": 0.9,
@@ -518,7 +518,7 @@
     "gaudi": {
       "description": "MUST delegate for Blender and 3D art work: mesh modeling, scene composition, materials and shading, lighting and camera framing, rendering, rigging and animation, and glTF/three.js web export. Drives the Blender MCP server directly and consults the threejs skill for web delivery.",
       "mode": "subagent",
-      "model": "{env:OPENCODE_MODEL_SUBAGENT_WORKER}",
+
       "prompt": "{file:prompts/agents/gaudi.txt}",
       "temperature": 0.3,
       "topP": 0.9,

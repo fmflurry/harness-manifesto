@@ -1692,7 +1692,7 @@ check "the registered git guard command runs through bash" registered_guard_runs
 INSTALL_JQ="$(sed -n '/^        def bashify/,/^    '"'"' "\$settings"/p' "$HERE/install.sh" | sed '$d')"
 MANAGED_HOOKS="$(for f in "$HERE"/.claude/hooks/*.sh; do basename "$f" .sh; done | jq -Rsc 'split("\n") | map(select(. != ""))')"
 install_merge() { jq --argjson managed "$MANAGED_HOOKS" --arg h "~/.claude/hooks" --arg mod /m --arg modAbs /m --arg modTilde "~/.claude/mods/autonomy-status" --arg mode global "$INSTALL_JQ" <<<"$1"; }
-install_merge_local() { jq --argjson managed "$MANAGED_HOOKS" --arg h "./.claude/hooks" --arg mod "./.claude/mods/autonomy-status" --arg modAbs "/proj/.claude/mods/autonomy-status" --arg modTilde "~/.claude/mods/autonomy-status" --arg mode local "$INSTALL_JQ" <<<"$1"; }
+install_merge_local() { jq --argjson managed "$MANAGED_HOOKS" --arg h '$CLAUDE_PROJECT_DIR/.claude/hooks' --arg mod "./.claude/mods/autonomy-status" --arg modAbs "/proj/.claude/mods/autonomy-status" --arg modTilde "~/.claude/mods/autonomy-status" --arg mode local "$INSTALL_JQ" <<<"$1"; }
 LEGACY_SETTINGS='{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"~/.claude/hooks/autonomy-git-guard.sh"},{"type":"command","command":"/opt/own/hook.sh"}]}]}}'
 for seed in '{}' "$LEGACY_SETTINGS"; do
   merged="$(install_merge "$seed")"
@@ -1710,7 +1710,36 @@ check "installer global keeps the home plugin dir" test "$(install_merge "$GLOBA
 LOCAL_SETTINGS="$TMP/local-settings.json"
 printf '%s\n' '{"hooks":{"A":[{"hooks":[{"type":"command","command":"bash ~/.claude/hooks/autonomy-git-guard.sh"}]}]},"p":"~/.claude/mods/x"}' >"$LOCAL_SETTINGS"
 ( info() { :; }; ok() { :; }; eval "$(sed -n '/^localize_claude_settings_hooks() {/,/^}/p' "$HERE/install.sh")"; localize_claude_settings_hooks "$LOCAL_SETTINGS" )
-check "installer --local rewrites bash ~/.claude/ hook paths" test "$(jq -r '.hooks.A[0].hooks[0].command' "$LOCAL_SETTINGS" | tr -d '\r')" = "bash ./.claude/hooks/autonomy-git-guard.sh"
+check "installer --local rewrites bash ~/.claude/ hook paths" test "$(jq -r '.hooks.A[0].hooks[0].command' "$LOCAL_SETTINGS" | tr -d '\r')" = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/autonomy-git-guard.sh"'
+DUP_LOCAL="$(jq -n \
+  --arg kpi 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"' \
+  --arg dot 'bash ./.claude/hooks/kpi-emit.sh' \
+  --arg guard 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/autonomy-git-guard.sh"' \
+  --arg domain 'bash ./.claude/hooks/domain-rules.sh' \
+  '{hooks:{SessionStart:[{hooks:[{type:"command",command:$kpi}]},{hooks:[{type:"command",command:$dot}]}],PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$guard},{type:"command",command:"/opt/own/hook.sh"}]},{matcher:"Edit|Write|MultiEdit",hooks:[{type:"command",command:$domain}]}]}}')"
+dup_merged="$(install_merge_local "$DUP_LOCAL")"
+script_count() { jq -r --arg ev "$2" --arg m "$3" --arg s "$4" '[.hooks[$ev][]? | select((.matcher // "") == $m) | .hooks[]?.command | select(endswith($s) or endswith($s + "\""))] | length' <<<"$1"; }
+check "installer --local keeps one kpi-emit per event" test "$(script_count "$dup_merged" SessionStart "" kpi-emit.sh)" = 1
+check "installer --local keeps the project-dir kpi-emit form" test "$(jq -r '.hooks.SessionStart[0].hooks[0].command' <<<"$dup_merged" | tr -d '\r')" = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"'
+check "installer --local does not add a dot-slash hook copy" test "$(jq -r '[.. | objects | select(has("command")) | .command | select(startswith("bash ./.claude/hooks/"))] | length' <<<"$dup_merged")" = 0
+STAR_LOCAL="$(jq -n \
+  --arg star 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"' \
+  --arg dot 'bash ./.claude/hooks/kpi-emit.sh' \
+  '{hooks:{PostToolUse:[{matcher:"*",hooks:[{type:"command",command:$star}]},{hooks:[{type:"command",command:$dot}]}],PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:"bash ~/.claude/hooks/autonomy-git-guard.sh"}]},{matcher:"Edit|Write|MultiEdit",hooks:[{type:"command",command:"bash ~/.claude/hooks/domain-rules.sh"}]}]}}')"
+star_merged="$(install_merge_local "$STAR_LOCAL")"
+check "installer --local collapses star and empty matchers for one script" test "$(jq -r '[.hooks.PostToolUse[]?.hooks[]?.command | select(endswith("kpi-emit.sh") or endswith("kpi-emit.sh\""))] | length' <<<"$star_merged")" = 1
+check "installer --local keeps Bash and Edit matchers apart" test "$(jq -r '[.hooks.PreToolUse[]?.matcher] | unique | sort | join(",")' <<<"$star_merged")" = "AskUserQuestion,Bash,Edit|Write|MultiEdit"
+check "installer --local keeps both Bash scripts" test "$(jq -r '[.hooks.PreToolUse[] | select(.matcher=="Bash") | .hooks[].command] | length' <<<"$star_merged")" = 2
+check "installer --local keeps a user hook beside the project-dir guard" test "$(jq -r '[.hooks.PreToolUse[] | select(.matcher=="Bash") | .hooks[].command | select(.=="/opt/own/hook.sh")] | length' <<<"$dup_merged")" = 1
+check "installer --local rewrites a dot-slash domain-rules hook" test "$(jq -r '[.hooks.PreToolUse[] | select(.matcher=="Edit|Write|MultiEdit") | .hooks[].command] | .[0]' <<<"$dup_merged" | tr -d '\r')" = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/domain-rules.sh"'
+check "installer global does not rewrite hooks to CLAUDE_PROJECT_DIR" test "$(install_merge "$LEGACY_SETTINGS" | jq -r '[.. | objects | select(has("command")) | .command | select(contains("CLAUDE_PROJECT_DIR"))] | length')" = 0
+SHEBANG_DIR="$TMP/shebang"; mkdir -p "$SHEBANG_DIR/sub"
+printf '#!/usr/bin/env bash\necho hi\n' >"$SHEBANG_DIR/sub/run.sh"
+printf 'not a script\n' >"$SHEBANG_DIR/note.txt"
+chmod 644 "$SHEBANG_DIR/sub/run.sh" "$SHEBANG_DIR/note.txt"
+( eval "$(sed -n '/^chmod_shebang_scripts() {/,/^}/p' "$HERE/install.sh")"; chmod_shebang_scripts "$SHEBANG_DIR" )
+check "copied shebang script becomes executable" test -x "$SHEBANG_DIR/sub/run.sh"
+check "copied file without a shebang stays non-executable" test ! -x "$SHEBANG_DIR/note.txt"
 FAKE_AWK_DIR="$TMP/fakeawk"; mkdir -p "$FAKE_AWK_DIR"
 REAL_AWK="$(command -v awk)"
 fake_awk() { # body

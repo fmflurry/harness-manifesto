@@ -6,15 +6,15 @@
 .DESCRIPTION
     Clones (or fast-forwards) the repo into a local source dir, then merges the
     config into %USERPROFILE%\.config\opencode and %USERPROFILE%\.claude, installs
-    JS dependencies, and writes the OPENCODE_MODEL_* / OPENCODE_REASONING_* defaults
-    as persistent User environment variables.
+    JS dependencies, and clears retired OPENCODE_MODEL_* / OPENCODE_REASONING_*
+    User environment variables. OpenCode agents inherit the session model.
 
     Re-running the exact same one-liner pulls the latest and re-applies it — that
     is the update path.
 
     Use -Local for a project-scoped install: copies into .\.opencode and .\.claude
     in the current directory, then applies .\.harness-local\ (never written by
-    the installer). Does NOT persist env vars (prints them as a hint instead).
+    the installer). Does not set a model. A previous User-scope model pin is cleared.
     Do NOT run -Local from inside the settings-opencode clone itself.
 
     Use -NoOpencode to skip OpenCode entirely (no repo copy, no deps, no env vars)
@@ -133,16 +133,16 @@ if (-not $Status -and -not $doOpencode -and -not $doClaude) {
     Die 'nothing to install (both targets disabled)'
 }
 
-$EnvVars = [ordered]@{
-    OPENCODE_MODEL_CONDUCTOR        = 'myMistral/mistral-medium-2604'
-    OPENCODE_MODEL_SUBAGENT_PLANNER = 'myMistral/mistral-large-latest'
-    OPENCODE_MODEL_SUBAGENT_WORKER  = 'myMistral/mistral-medium-latest'
-    OPENCODE_MODEL_SUBAGENT_MINI    = 'myMistral/mistral-small-latest'
-    OPENCODE_REASONING_CONDUCTOR    = 'high'
-    OPENCODE_REASONING_PRIMARY      = 'high'
-    OPENCODE_REASONING_SECONDARY    = 'medium'
-    OPENCODE_REASONING_TERTIARY     = 'low'
-}
+$RetiredOpenCodeEnv = @(
+    'OPENCODE_MODEL_CONDUCTOR'
+    'OPENCODE_MODEL_SUBAGENT_PLANNER'
+    'OPENCODE_MODEL_SUBAGENT_WORKER'
+    'OPENCODE_MODEL_SUBAGENT_MINI'
+    'OPENCODE_REASONING_CONDUCTOR'
+    'OPENCODE_REASONING_PRIMARY'
+    'OPENCODE_REASONING_SECONDARY'
+    'OPENCODE_REASONING_TERTIARY'
+)
 
 # ------------------------------ presentation ---------------------------------
 
@@ -370,13 +370,11 @@ if ($Status) {
 
 if ($Uninstall) {
     Step 'Uninstall'
-    if (-not $Local -and $doOpencode) {
-        foreach ($name in $EnvVars.Keys) {
+    if ($doOpencode) {
+        foreach ($name in $RetiredOpenCodeEnv) {
             [Environment]::SetEnvironmentVariable($name, $null, 'User')
         }
-        Ok 'removed OPENCODE_* User environment variables'
-    } elseif ($Local) {
-        Info 'env vars not removed — -Local mode never persisted them'
+        Ok 'removed retired OPENCODE_MODEL_* and OPENCODE_REASONING_* User variables'
     } else {
         Info 'env vars not removed — OpenCode was skipped'
     }
@@ -562,24 +560,14 @@ if (-not $doOpencode) {
     Step 'Environment variables — skipped'
 } elseif (-not $opencodeTargetReady) {
     Step 'Environment variables — skipped (OpenCode target was not modified)'
-} elseif ($Local) {
-    Step 'Environment variables — not persisted (-Local mode)'
-    Info 'Add the following to a per-project .envrc (direnv) or source it manually:'
-    Info ''
-    foreach ($name in $EnvVars.Keys) {
-        Info "  `$env:$name = '$($EnvVars[$name])'"
-    }
-    Info ''
 } else {
-    Step 'Configuring User environment variables'
-    foreach ($name in $EnvVars.Keys) {
-        [Environment]::SetEnvironmentVariable($name, $EnvVars[$name], 'User')
-        # Make them available in the current session too.
-        Set-Item -Path "Env:$name" -Value $EnvVars[$name]
+    Step 'Environment variables'
+    foreach ($name in $RetiredOpenCodeEnv) {
+        [Environment]::SetEnvironmentVariable($name, $null, 'User')
+        if (Test-Path "Env:$name") { Remove-Item "Env:$name" }
     }
-    Ok 'wrote OPENCODE_MODEL_* and OPENCODE_REASONING_* (User scope)'
-    Info 'These are defaults for the myMistral provider — edit them for your own provider:'
-    Info '  setx OPENCODE_MODEL_CONDUCTOR "yourprovider/your-model"'
+    Ok 'removed retired OPENCODE_MODEL_* and OPENCODE_REASONING_* User variables'
+    Info 'OpenCode agents inherit the session model. This installer does not set one.'
 }
 
 # ------------------------------ skill sync -----------------------------------

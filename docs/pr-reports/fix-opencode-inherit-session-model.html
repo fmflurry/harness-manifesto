@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCode inherits the session model</title>
+<style>
+  :root {
+    --bg: #FAF6EE;
+    --bg-soft: #F3EDE0;
+    --card: #FFFcf6;
+    --text: #3A342C;
+    --muted: #7A7164;
+    --line: #D9CFC0;
+    --accent: #8B6F47;
+    --accent-2: #6B8F71;
+    --accent-4: #9B6B6B;
+    --shadow: 0 8px 28px rgba(58, 52, 44, 0.07);
+    --radius: 16px;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+    --sans: "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    line-height: 1.55;
+    max-width: 68rem;
+    margin-inline: auto;
+    padding: 2rem 1.25rem 3.5rem;
+  }
+  h1 { font-size: 2.1rem; line-height: 1.15; margin: 0 0 0.4rem; }
+  h2 { font-family: var(--sans); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.7rem; }
+  p { margin: 0.4rem 0; }
+  .lead { font-size: 1.15rem; max-width: 40rem; }
+  .muted { color: var(--muted); }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.15rem 1.25rem;
+  }
+  .flow, .pair, .facts { display: grid; gap: 0.9rem; margin: 1.1rem 0 1.4rem; }
+  .flow { grid-template-columns: 1fr auto 1fr auto 1fr; align-items: stretch; }
+  .pair, .facts { grid-template-columns: 1fr 1fr; }
+  .arrow { align-self: center; color: var(--accent); font-family: var(--sans); font-size: 1.4rem; }
+  .kicker { font-family: var(--sans); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .before { background: #F7E4E4; }
+  .after { background: #D7E6DF; }
+  code, .mono { font-family: var(--mono); font-size: 0.86rem; }
+  ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+  li { margin: 0.25rem 0; }
+  .wide { grid-column: 1 / -1; }
+  @media (max-width: 800px) {
+    .flow, .pair, .facts { grid-template-columns: 1fr; }
+    .arrow { transform: rotate(90deg); justify-self: center; }
+    h1 { font-size: 1.7rem; }
+  }
+</style>
+</head>
+<body>
+  <p class="kicker">harness-manifesto · fix/opencode-inherit-session-model</p>
+  <h1>OpenCode uses the session model</h1>
+  <p class="lead">The harness no longer names a model. Whatever you pick in OpenCode, or whatever your own OpenCode default is, is the model every agent runs.</p>
+
+  <div class="flow">
+    <section class="card">
+      <h2>1 · You choose</h2>
+      <p>The session stores the model you selected. The harness does not set a top-level <code>model</code>.</p>
+    </section>
+    <div class="arrow" aria-hidden="true">→</div>
+    <section class="card">
+      <h2>2 · Primary agent</h2>
+      <p>A primary agent with no <code>model</code> key uses that session model. <code>conductor</code> and Monolith <code>main</code> are both unset.</p>
+    </section>
+    <div class="arrow" aria-hidden="true">→</div>
+    <section class="card">
+      <h2>3 · Subagent</h2>
+      <p>A subagent with no <code>model</code> key uses the model of the agent that invoked it. All 26 agents in <code>opencode.jsonc</code> are unset.</p>
+    </section>
+  </div>
+  <p class="muted">OpenCode documents this on <span class="mono">opencode.ai/docs/agents</span>: a subagent uses its configured model, or the parent session’s model when none is configured. Selecting a primary agent by id does not change the model the session already stored.</p>
+
+  <div class="pair">
+    <section class="card before">
+      <h2>Before</h2>
+      <p>Every agent had <code>"model": "{env:OPENCODE_MODEL_*}"</code>. The installer wrote Mistral ids into the shell, so a fresh install ran Mistral even when you had chosen something else.</p>
+      <p><code>OPENCODE_REASONING_*</code> was exported beside those pins. Nothing in <code>opencode.jsonc</code> read it.</p>
+    </section>
+    <section class="card after">
+      <h2>After</h2>
+      <p>The shell block only exports <code>SETTINGS_OPENCODE_REPO</code>. A reinstall rewrites the marker block, so the old exports disappear. <code>bootstrap.ps1</code> clears the eight User-scope variables it used to set.</p>
+      <p>The <code>myMistral</code> provider block stays in the file. Nothing selects it unless you do.</p>
+    </section>
+  </div>
+
+  <h2>Project install, two bugs fixed in the same installer</h2>
+  <div class="facts">
+    <section class="card">
+      <p class="kicker">Hooks fired twice</p>
+      <p>A merge added <code>bash ./.claude/hooks/kpi-emit.sh</code> next to an existing <code>bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"</code>.</p>
+      <p>The merge now keeps one command per event, matcher, and script, and writes the <code>$CLAUDE_PROJECT_DIR</code> form. A hook you wrote yourself, such as <code>/opt/own/hook.sh</code>, stays as you wrote it.</p>
+    </section>
+    <section class="card">
+      <p class="kicker">Copied scripts lost +x</p>
+      <p><code>rsync -a</code> keeps the git mode. <code>scripts/agent-harness/test/run.sh</code> is checked in as 644, so the copy was not executable.</p>
+      <p>After the copy, any file whose first line is a shebang is marked executable. A file without a shebang stays as it was.</p>
+    </section>
+    <section class="card wide">
+      <p class="kicker">To pin one agent anyway</p>
+      <p>Set <code>model</code> on that agent in your own OpenCode config. This harness will not put the pin back on reinstall.</p>
+    </section>
+  </div>
+
+  <div class="pair">
+    <section class="card">
+      <h2>Tests</h2>
+      <ul>
+        <li><code>scripts/agent-harness/test/run.sh</code> — 2781 passed, 0 failed</li>
+        <li><code>npm test</code> — 319 tests, 316 passed, 3 skipped, 0 failed</li>
+      </ul>
+      <p class="muted">The new checks reject an agent <code>model</code> key, reject <code>OPENCODE_MODEL_*</code> in the shell block, and cover the hook dedupe and the shebang bit.</p>
+    </section>
+    <section class="card">
+      <h2>What changed</h2>
+      <ul>
+        <li><code>opencode.jsonc</code> — 26 model lines removed</li>
+        <li><code>install.sh</code>, <code>bootstrap.ps1</code> — no model or reasoning exports</li>
+        <li><code>apply-monolith.mjs</code> and <code>variants/monolith/manifest.json</code> — generated agents stay unpinned</li>
+        <li>Plugin 0.4.47</li>
+      </ul>
+    </section>
+  </div>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/harness-manifesto  fix/opencode-inherit-session-model  pr n/a. Status: partial. Coverage: empty selection.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr></table>
+<p style="margin:10px 0 0">Tools: N/A</p>
+<p style="margin:4px 0 0">Skills: N/A</p>
+<p style="margin:4px 0 0">Agents: N/A</p>
+<p style="margin:4px 0 0">Failure tools: N/A. Durations: n/a.</p>
+</section>
+</body>
+</html>

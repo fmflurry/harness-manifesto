@@ -62,7 +62,7 @@ When CodeMemory is off (cloud or remote agent, `FMFLURRY_CODEMEMORY=off`, or aut
    - If the `architect` agent is installed, dispatch to that agent for system design, module boundaries, and scalability. Otherwise the main agent loads the `architect` skill and does that review inline.
    - `security-reviewer` — auth, data, secrets, trust boundaries (if auth/tenant involved)
    
-   Then merge their findings. Note: OpenCode can bind these to different `OPENCODE_MODEL_SUBAGENT_*` models for diverse perspectives.
+   Then merge their findings. OpenCode runs every one of them on the session model.
 
 ## What to hand back
 
