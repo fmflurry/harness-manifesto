@@ -14,9 +14,9 @@ The log has no prompts, tool arguments, secrets, or absolute paths. `skill` and 
 | `kind` | string | One of the kinds below |
 | `variant` | string | `conductor`, `monolith`, or `unknown`. `orchestration` is stored as `conductor` |
 | `harness_version` | string | Plugin version, currently stamped from `AGENT_HARNESS_VERSION` |
-| `tool` | string | `opencode`, `claude`, or `cursor` |
-| `repo` | string | `owner/name` when the origin remote matches, otherwise the repo directory name or a short hash |
-| `branch` | string | Current branch, or `unknown` |
+| `tool` | string | `opencode`, `claude`, or `cursor`. A CLI event with no host signal is `unattributed` |
+| `repo` | string | `owner/name` of the worktree the event ran in. Worktrees of one clone share that origin. Otherwise the repo directory name or a short hash |
+| `branch` | string | Branch of that worktree (`git rev-parse --abbrev-ref HEAD`), or `unknown` |
 | `session_id` | string | Host session id, or a short hash when the raw id is not a safe token. `unknown` when absent |
 | `tokens` | number or null | Input tokens plus output tokens. Cache and reasoning are not included. Null when unknown |
 
@@ -49,10 +49,33 @@ The log has no prompts, tool arguments, secrets, or absolute paths. `skill` and 
 | `review_rounds` | number | PR outcome |
 | `time_to_merge_ms` | number | PR outcome |
 | `reverted_within_7d` | boolean | PR outcome |
+| `marked` | string | CLI events only. `session` when no session id was available, `host` when the host is `unattributed`, or `session,host` when both are missing. Omitted when the session and host are known. Hook events do not carry it |
 
 ## Kinds
 
-`session_start`, `session_end`, `tool_call`, `tool_result`, `subagent_spawn`, `subagent_stop`, `guard_block`, `review_round`, `fix_round`, `ship`, `pr_open`, `eval_result`, `pr_outcome`.
+`session_start`, `session_end`, `tool_call`, `tool_result`, `subagent_spawn`, `subagent_stop`, `guard_block`, `review_round`, `fix_round`, `ship`, `pr_open`, `eval_result`, `pr_outcome`, `session_bind`.
+
+`session_bind` records that a session is working in a worktree. It stores `repo`, `branch`, `tool`, and `session_id` only. `ship-init` writes one after it creates the worktree. `goal` writes one when the current checkout, or the worktree a review enters, is a linked worktree (its git dir differs from the common git dir). The main checkout is not bound.
+
+The same facts are kept in `bindings.json` next to the log, keyed by `session_id`, with `repo`, `branch`, `tool`, and `ts`. That file has no absolute path. A later event of that session with no resolvable directory uses the binding. A newer bind for the same session replaces the older one.
+
+## Which directory an event belongs to
+
+The hook's own working directory is the last choice. The command text is read only to find a directory, then discarded. It is not written to the log.
+
+1. `git -C <dir>` or `git --work-tree <dir>` in a shell command.
+2. `cd <dir> &&` in that command.
+3. An absolute path in the command that sits inside a worktree. A worktree other than the hook's checkout wins.
+4. `file_path`, `path`, or `filePath` on the tool input, resolved against the payload directory.
+5. The payload `cwd` when it is inside a git checkout. OpenCode passes the same hints through `AGENT_HARNESS_KPI_CWD`, `AGENT_HARNESS_KPI_COMMAND`, and `AGENT_HARNESS_KPI_FILE`. Those variables are not log fields.
+6. The session binding, when nothing above named a directory.
+7. The hook process directory.
+
+Repo comes from `git -C <dir> remote get-url origin`. Branch comes from `git -C <dir> rev-parse --abbrev-ref HEAD`.
+
+Claude `PreToolUse` and the Cursor adapter export those hints before `kpi-emit.sh` runs. Cursor `postToolUse` still prints `{}` and still drops the shell command and the tool output from the event.
+
+CLI events (`goal` reviews, the git guard) copy a session id from `HARNESS_SESSION_ID`, `AGENT_HARNESS_SESSION_ID`, `OPENCODE_SESSION_ID`, `CURSOR_SESSION_ID`, or `CLAUDE_SESSION_ID` when one of those is set. The host comes from `AGENT_HARNESS_TOOL`, or from the Cursor, OpenCode, or Claude environment. When neither is available the event stays `session_id: unknown`, `tool: unattributed`, and `marked` names the gap. `unknown` is not counted as a session.
 
 ## Where each host writes
 
@@ -72,8 +95,8 @@ Cursor:
 
 OpenCode (`plugins/kpi/index.ts`):
 
-- `tool.execute.before` writes `tool_call`. A `skill` tool adds `skill`. A `task` or `agent` tool also writes `subagent_spawn` with `agent`.
-- `tool.execute.after` writes `tool_result` with `ok` and `duration_ms` measured in the plugin. Arguments and outputs are not forwarded.
+- `tool.execute.before` writes `tool_call`. A `skill` tool adds `skill`. A `task` or `agent` tool also writes `subagent_spawn` with `agent`. A shell tool's `workdir` and `command`, and a read or edit `filePath`, choose the worktree. The command is not an argument of the KPI hook.
+- `tool.execute.after` writes `tool_result` with `ok` and `duration_ms` measured in the plugin. Arguments and outputs are not forwarded. The same worktree hints apply.
 - `session.created` writes `session_start`, or `subagent_spawn` with `agent` when `parentID` is set.
 - `message.updated` stores the latest input+output total per message id. It does not write a line.
 - `session.idle` and `session.deleted` write `session_end` for a root session, or `subagent_stop` with `agent` for a child session. `tokens` is the sum of the stored message totals.
@@ -96,7 +119,7 @@ The text report, and the sanitised `docs/pr-reports/<branch-slug>.metrics.json` 
 | --- | --- |
 | Wall | Last event time minus first event time |
 | Active | Sum of gaps between events. A gap longer than `--gap` minutes is idle and is left out. The default is 5 |
-| Sessions | Distinct `session_id` per host (`cursor`, `claude`, `opencode`) |
+| Sessions | Distinct `session_id` per host (`cursor`, `claude`, `opencode`) among `tool_call`, `tool_result`, `session_start`, `session_end`, `subagent_spawn`, and `subagent_stop`. `N/A` when those events were not collected. A real zero means the log was collected and that host had no session |
 | Tools and skills | Counts of `tool_call` only. `tool_result` does not add a call |
 | Agents | `tool_call` counts for `main`, or for a subagent when the event's session is that child. A Task/Agent call on the parent session stays on `main`. A subagent with no tool calls of its own is counted once per spawn |
 | Failures and durations | `tool_result` with `ok: false`, and `duration_ms` when it is a non-negative number below 24 hours |
@@ -104,6 +127,23 @@ The text report, and the sanitised `docs/pr-reports/<branch-slug>.metrics.json` 
 | Review and fix rounds | `review_round` and `fix_round` events. If those events are absent, the report uses `review_rounds` or `fix_iterations` from a later outcome |
 | Tokens | Sum of `session_end` and `subagent_stop` totals. `n/a` when none of those events carried a number |
 
-`partial` is true when the branch has no events, or the repo or branch is unknown. Unknown tokens are not partial.
+`N/A` in the sessions, failure, guard, review, and fix cells means the value was not collected. `n/a` on wall, active, and tokens still means the host sent no number. The JSON uses `null` for `N/A` and a number, including `0`, when the value was collected.
 
-The metrics file keeps only those aggregates. Names must already match the field patterns above. Prompts, arguments, and absolute paths are not written. `pr-report` reads the file, inserts a Metrics panel into the show-me HTML, and prints a `## Metrics` table for the PR body. `pr-report-check` warns when that table is missing or partial and still accepts a valid visual report. Conductor and Monolith both run `kpi feature` before the visual report.
+An event recorded on `master`, `main`, `HEAD`, or `unknown` is counted on a feature branch when that session has a `session_bind` for the branch, or when a commit on the branch carries a `Session-Id:` trailer for that same session. The trailer is read from local `git log` between the merge base (`origin/main`, `origin/master`, `main`, or `master`) and the branch. A trailer with no KPI event does not create a session. GitHub authors and model names are not sessions.
+
+`coverage` on the report is `{ collected, reason, warnings }`. `collected` is true only when the branch has a session event with a real `session_id`. Admin events (`review_round`, `guard_block`, `fix_round`, `session_bind`, `pr_open`, `ship`) do not make it true. `reason` is null when collection succeeded. Otherwise it is the first match of:
+
+| Reason | When |
+| --- | --- |
+| `log missing` | The log file is absent |
+| `invalid JSON lines` | The file has no valid event, only broken lines |
+| `jq missing` | `jq` is not on `PATH`. Events already in the log are still counted |
+| `capture disabled` | `AGENT_HARNESS_KPI=0`. Events already in the log are still counted |
+| `empty selection` | The log parsed and no event matched the repo and branch |
+| `no session events for branch` | Matching events exist and none of them is a session event |
+
+`partial` is true when session events were not collected, the repo or branch is unknown, or capture is blocked (`jq` missing, `AGENT_HARNESS_KPI=0`, or the log is missing). Unknown tokens are not partial. A report can be partial and still show real session counts when the log already holds them and capture is blocked.
+
+stderr and `coverage.warnings` name the gap: `log absent`, `jq missing`, `capture disabled`, `empty selection`, `invalid JSON lines`, `no session events for branch`. A missing log does not also warn that the selection is empty. A file of only broken lines does not either.
+
+The metrics file keeps only those aggregates, plus `coverage`. Names must already match the field patterns above. Prompts, arguments, and absolute paths are not written. `pr-report` reads the file, inserts a Metrics panel into the show-me HTML, and prints a `## Metrics` table for the PR body. The table adds `Coverage: <reason>` when `reason` is set. `pr-report-check` warns when that table is missing or partial and still accepts a valid visual report. Conductor and Monolith both run `kpi feature` before the visual report.
