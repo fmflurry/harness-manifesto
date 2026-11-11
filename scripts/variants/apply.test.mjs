@@ -10,6 +10,13 @@ import { parseJsonc } from '../cursor-plugin/lib.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const applyScript = path.join(repo, 'scripts/variants/apply-monolith.mjs');
 
+function assertNoPinnedModel(cfg, label) {
+  assert.equal(cfg.model, undefined, `${label} must not set a top-level model`);
+  for (const [name, agent] of Object.entries(cfg.agent ?? {})) {
+    assert.equal(Object.hasOwn(agent, 'model'), false, `${label} agent ${name} must inherit the session model`);
+  }
+}
+
 function copyTree(src, dest) {
   fs.cpSync(src, dest, { recursive: true, filter: (item) => !item.includes(`${path.sep}node_modules${path.sep}`) });
 }
@@ -35,6 +42,7 @@ test('monolith overlay keeps conductor sources and installs the lean roster', ()
   assert.equal(fs.readFileSync(path.join(repo, 'opencode.jsonc'), 'utf8'), before);
 
   const cfg = parseJsonc(fs.readFileSync(path.join(opencode, 'opencode.jsonc'), 'utf8'));
+  assertNoPinnedModel(cfg, 'monolith overlay');
   assert.equal(cfg.instructions[0], path.join(opencode, 'instructions', 'monolith.md'));
   // The autonomy rule is mandatory for every task, so Monolith loads it with its baseline.
   assert.deepEqual(cfg.instructions, [
@@ -97,6 +105,7 @@ test('monolith overlay keeps conductor sources and installs the lean roster', ()
   });
   assert.equal(local.status, 0, `${local.stdout}\n${local.stderr}`);
   const localCfg = parseJsonc(fs.readFileSync(path.join(projectOpencode, 'opencode.jsonc'), 'utf8'));
+  assertNoPinnedModel(localCfg, 'project monolith');
   assert.deepEqual(localCfg.instructions, [
     '.opencode/instructions/monolith.md',
     '.opencode/instructions/autonomy.md',
@@ -111,6 +120,7 @@ test('monolith overlay keeps conductor sources and installs the lean roster', ()
   });
   assert.equal(globalApply.status, 0, `${globalApply.stdout}\n${globalApply.stderr}`);
   const globalCfg = parseJsonc(fs.readFileSync(path.join(globalDir, 'opencode.jsonc'), 'utf8'));
+  assertNoPinnedModel(globalCfg, 'global monolith');
   assert.deepEqual(globalCfg.instructions, [
     '~/.config/opencode/instructions/monolith.md',
     '~/.config/opencode/instructions/autonomy.md',

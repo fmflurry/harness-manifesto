@@ -20,6 +20,7 @@ import {
   readlinkSync,
   readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -1702,7 +1703,9 @@ function assertProjectOverlay(projectDir: string, variant: "monolith" | "conduct
   const rule = variant === "monolith" ? "monolith.mdc" : "conductor.mdc";
   assert.equal(readFileSync(join(projectDir, ".cursor/rules", rule), "utf8"), "project cursor rule\n");
   assert.equal(readFileSync(join(projectDir, ".cursor/.harness-variant"), "utf8").trim(), variant);
-  assert.match(readFileSync(join(projectDir, ".claude/settings.json"), "utf8"), /bash \.\/\.claude\/hooks\/domain-rules\.sh/);
+  const settingsText = readFileSync(join(projectDir, ".claude/settings.json"), "utf8");
+  assert.match(settingsText, /bash \\"\$CLAUDE_PROJECT_DIR\/\.claude\/hooks\/domain-rules\.sh\\"/);
+  assert.doesNotMatch(settingsText, /bash \.\/\.claude\/hooks\//);
   // OpenCode 2 loads every plugin folder on its own; the config does not list them.
   assert.ok(existsSync(join(projectDir, ".opencode/plugins/domain-rules/index.ts")));
   assertRelativeLocalPaths(projectDir, variant);
@@ -1865,6 +1868,189 @@ test("local install prints why an overlay root is skipped", () => {
     assert.equal(readFileSync(join(projectDir, ".claude/CLAUDE.md"), "utf8"), "project claude overlay\n");
     assert.equal(existsSync(join(projectDir, ".opencode")), false);
     assert.equal(pluginDirs(projectDir), "./.claude/mods/autonomy-status");
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+const retiredModelEnv = [
+  "OPENCODE_MODEL_CONDUCTOR",
+  "OPENCODE_MODEL_SUBAGENT_PLANNER",
+  "OPENCODE_MODEL_SUBAGENT_WORKER",
+  "OPENCODE_MODEL_SUBAGENT_MINI",
+  "OPENCODE_REASONING_CONDUCTOR",
+  "OPENCODE_REASONING_PRIMARY",
+  "OPENCODE_REASONING_SECONDARY",
+  "OPENCODE_REASONING_TERTIARY",
+] as const;
+
+function assertNoPinnedModel(configText: string, label: string): void {
+  const cfg = parseJsonc(configText) as {
+    model?: unknown;
+    agent?: Record<string, { model?: unknown }>;
+  };
+  assert.equal(cfg.model, undefined, `${label} must not set a top-level model`);
+  const agents = cfg.agent ?? {};
+  assert.ok(Object.keys(agents).length > 0, `${label} has no agents`);
+  for (const [name, agent] of Object.entries(agents)) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(agent, "model"),
+      false,
+      `${label} agent ${name} must inherit the session model`,
+    );
+  }
+}
+
+function commandsFor(
+  settings: { hooks?: Record<string, Array<{ matcher?: string; hooks?: Array<{ command?: string }> }>> },
+  event: string,
+  matcher: string,
+  script: string,
+): string[] {
+  const found: string[] = [];
+  for (const group of settings.hooks?.[event] ?? []) {
+    if ((group.matcher ?? "") !== matcher) continue;
+    for (const hook of group.hooks ?? []) {
+      const command = hook.command ?? "";
+      if (command.endsWith(script) || command.endsWith(`${script}"`)) found.push(command);
+    }
+  }
+  return found;
+}
+
+test("opencode.jsonc agents inherit the session model", () => {
+  assertNoPinnedModel(readFileSync(join(repoRoot, "opencode.jsonc"), "utf8"), "opencode.jsonc");
+});
+
+test("reinstall drops OPENCODE_MODEL_* and OPENCODE_REASONING_* from the shell block", () => {
+  const tmpRoot = mkdtempSync(join(tmpdir(), "settings-opencode-env-"));
+  try {
+    const projectDir = join(tmpRoot, "project");
+    const homeDir = join(tmpRoot, "home");
+    const fakeBin = join(tmpRoot, "bin");
+    mkdirSync(projectDir);
+    mkdirSync(homeDir);
+    mkdirSync(fakeBin);
+    writeFakeNpm(fakeBin);
+    useRealNode(fakeBin);
+    const rc = join(homeDir, ".bashrc");
+    writeFileSync(
+      rc,
+      [
+        "# keep",
+        "# >>> settings-opencode >>>",
+        ...retiredModelEnv.map((name) => `export ${name}="retired"`),
+        'export SETTINGS_OPENCODE_REPO="/old"',
+        "# <<< settings-opencode <<<",
+        "export KEEP_ME=1",
+        "",
+      ].join("\n"),
+    );
+    const result = spawnSync("bash", [installerPath, "--yes", "--no-opencode"], {
+      cwd: projectDir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: homeDir,
+        PATH: `${fakeBin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+        SHELL: "/bin/bash",
+      },
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.status, 0, output);
+    const block = readFileSync(rc, "utf8");
+    assert.match(block, /export KEEP_ME=1/);
+    assert.match(block, /export SETTINGS_OPENCODE_REPO=/);
+    assert.doesNotMatch(block, /OPENCODE_MODEL_/);
+    assert.doesNotMatch(block, /OPENCODE_REASONING_/);
+    assert.doesNotMatch(block, /myMistral\//);
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("bootstrap.ps1 clears retired model env vars and does not set Mistral defaults", () => {
+  const text = readFileSync(powerShellBootstrapPath, "utf8");
+  const installSection = text.slice(text.indexOf("# ------------------------------ env vars"));
+  assert.notEqual(installSection.length, text.length);
+  for (const name of retiredModelEnv) assert.match(text, new RegExp(name));
+  assert.doesNotMatch(text, /myMistral\//);
+  assert.match(installSection, /SetEnvironmentVariable\(\$name, \$null, 'User'\)/);
+  assert.doesNotMatch(installSection, /SetEnvironmentVariable\(\$name, \$EnvVars/);
+});
+
+test("local monolith install is model-free, dedupes project hooks, and keeps shebang scripts executable", () => {
+  const tmpRoot = mkdtempSync(join(tmpdir(), "settings-opencode-local-model-"));
+  try {
+    const projectDir = join(tmpRoot, "project");
+    const homeDir = join(tmpRoot, "home");
+    const fakeBin = join(tmpRoot, "bin");
+    mkdirSync(projectDir);
+    mkdirSync(homeDir);
+    mkdirSync(fakeBin);
+    writeFakeNpm(fakeBin);
+    useRealNode(fakeBin);
+    const settingsPath = join(projectDir, ".claude/settings.json");
+    mkdirSync(dirname(settingsPath), { recursive: true });
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify({
+        hooks: {
+          SessionStart: [
+            { hooks: [{ type: "command", command: 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"' }] },
+            { hooks: [{ type: "command", command: "bash ./.claude/hooks/kpi-emit.sh" }] },
+          ],
+          PreToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [
+                { type: "command", command: 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/autonomy-git-guard.sh"' },
+                { type: "command", command: "/opt/own/hook.sh" },
+              ],
+            },
+            {
+              matcher: "Edit|Write|MultiEdit",
+              hooks: [{ type: "command", command: "bash ./.claude/hooks/domain-rules.sh" }],
+            },
+          ],
+        },
+      }, null, 2)}\n`,
+    );
+    const result = spawnSync("bash", [installerPath, "--local", "--yes", "monolith"], {
+      cwd: projectDir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: homeDir,
+        PATH: `${fakeBin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+        SHELL: "/bin/bash",
+      },
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.status, 0, output);
+    assertNoPinnedModel(readFileSync(join(projectDir, ".opencode/opencode.jsonc"), "utf8"), "local monolith");
+    assert.doesNotMatch(output, /OPENCODE_MODEL_/);
+    assert.doesNotMatch(output, /OPENCODE_REASONING_/);
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+      hooks: Record<string, Array<{ matcher?: string; hooks?: Array<{ command?: string }> }>>;
+    };
+    const projectKpi = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"';
+    assert.deepEqual(commandsFor(settings, "SessionStart", "", "kpi-emit.sh"), [projectKpi]);
+    assert.deepEqual(commandsFor(settings, "PostToolUse", "", "kpi-emit.sh"), [projectKpi]);
+    assert.deepEqual(
+      commandsFor(settings, "PreToolUse", "Bash", "autonomy-git-guard.sh"),
+      ['bash "$CLAUDE_PROJECT_DIR/.claude/hooks/autonomy-git-guard.sh"'],
+    );
+    assert.deepEqual(
+      commandsFor(settings, "PreToolUse", "Edit|Write|MultiEdit", "domain-rules.sh"),
+      ['bash "$CLAUDE_PROJECT_DIR/.claude/hooks/domain-rules.sh"'],
+    );
+    const commands = JSON.stringify(settings);
+    assert.equal(commands.includes("bash ./.claude/hooks/"), false);
+    assert.equal(commands.includes("/opt/own/hook.sh"), true);
+    const runScript = join(projectDir, ".opencode/scripts/agent-harness/test/run.sh");
+    assert.equal(statSync(runScript).mode & 0o111, 0o111);
+    assert.equal(statSync(join(projectDir, ".opencode/package.json")).mode & 0o111, 0);
   } finally {
     rmSync(tmpRoot, { recursive: true, force: true });
   }
