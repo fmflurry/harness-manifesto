@@ -2,6 +2,10 @@
 
 Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cursor-plugin/config.json` and is copied into `.cursor-plugin/plugin.json` by `node scripts/build-cursor-plugin.mjs`.
 
+## [0.4.46] - 2026-11-11
+
+- KPI events take repo and branch from the session worktree (`cwd`, `git -C`, `cd`, absolute paths, and file paths) and from a session binding or a `Session-Id` trailer. A feature report with no session capture shows N/A instead of 0.
+
 ## [0.4.45] - 2026-11-10
 
 - OpenCode 2 only: the OpenCode 1 single-file plugins are gone, so OpenCode 2 no longer reports them as failed. `opencode.jsonc` uses `plugins` and names only `opencode-skill-creator`; `kdco-primitives` moves to `plugins/lib/`. A reinstall retires the old files, a stray `plugins/ecc-hooks.ts` and the old `plugins/kdco-primitives/`.
