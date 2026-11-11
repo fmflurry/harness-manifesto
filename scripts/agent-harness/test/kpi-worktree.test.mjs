@@ -156,6 +156,9 @@ test('compound shell commands keep the last worktree', () => {
     [`{ cd ${w}; git status; }`, 'feat/widget'],
     [`cd ${w} && git -C . status`, 'feat/widget'],
     [`git -C ${m} status && git -C ${w} status`, 'feat/widget'],
+    [`git -C ${w} status && cat ${shQuote(path.join(main, 'README.md'))}`, 'feat/widget'],
+    [`(cd ${w} && true) && git status`, 'master'],
+    [`cd ${w} && cd /tmp && git status`, 'master'],
   ];
   for (const [command, branch] of cases) {
     const { lines } = runEmit({
