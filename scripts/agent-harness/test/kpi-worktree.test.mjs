@@ -642,8 +642,14 @@ test('a missing log, disabled capture, a missing jq, an empty selection, and bad
     '--log', otherLog, '--repo', 'example/widget', '--branch', 'feat/widget', '--json', '--no-metrics',
   ]);
   assert.match(emptySel.stderr, /kpi feature: warning: empty selection/);
+  assert.match(emptySel.stderr, /no events matched this repo and branch/);
   assert.doesNotMatch(emptySel.stderr, /log absent/);
   assert.equal(JSON.parse(emptySel.stdout).coverage.reason, 'empty selection');
+  const emptyText = runFeature([
+    '--log', otherLog, '--repo', 'example/widget', '--branch', 'feat/widget', '--no-metrics',
+  ]);
+  assert.match(emptyText.stdout, /sessions N\/A/);
+  assert.match(emptyText.stdout, /coverage empty selection/);
   assert.equal(JSON.parse(emptySel.stdout).sessions.cursor, null);
 
   const badLog = path.join(dir, 'bad.jsonl');

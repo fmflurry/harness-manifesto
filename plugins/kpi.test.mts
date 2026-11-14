@@ -5,10 +5,13 @@ import {
   createKpiState,
   onMessageUpdated,
   onOpenCodeEvent,
+  onOpenCodeV2,
   onSessionEnded,
   onToolAfter,
   onToolBefore,
   sanitiseSkill,
+  sessionFallback,
+  skillFrom,
   usageTokens,
 } from "./lib/kpi-capture.ts";
 
@@ -102,6 +105,71 @@ test("OpenCode message usage lands on the session end and the subagent stop", ()
     type: "session.idle",
     properties: { sessionID: "child-1" },
   }), [["subagent_stop", "session=child-1", "agent=coder", "tokens=10"]]);
+});
+
+test("OpenCode 2 skill id and session location reach the KPI args", () => {
+  assert.equal(skillFrom({ id: "why" }), "why");
+  const state = createKpiState();
+  const opened = onOpenCodeV2(state, {
+    type: "session.created",
+    location: { directory: "/main" },
+    data: {
+      sessionID: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      parentID: undefined,
+      location: { directory: "/wt" },
+      agent: "build",
+      title: "SUPER_SECRET_PROMPT",
+    },
+  });
+  assert.equal(opened.cwd, "/wt");
+  assert.deepEqual(opened.batches, [[
+    "session_start",
+    "session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  ]]);
+  assert.equal(sessionFallback(state, "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV", "/main"), "/wt");
+  onOpenCodeV2(state, {
+    type: "session.usage.recorded",
+    data: {
+      sessionID: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      tokens: { input: 3, output: 8, reasoning: 9, cache: { read: 5, write: 1 } },
+    },
+  });
+  const ended = onOpenCodeV2(state, {
+    type: "session.idle",
+    data: { sessionID: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+  });
+  assert.deepEqual(ended.batches, [[
+    "session_end",
+    "session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "tokens=11",
+  ]]);
+  const busIdle = onOpenCodeV2(state, {
+    type: "session.idle",
+    location: { directory: "/main" },
+    data: { sessionID: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+  });
+  assert.equal(busIdle.cwd, "/wt");
+  const quietIdle = onOpenCodeV2(state, {
+    type: "session.idle",
+    data: { sessionID: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+  });
+  assert.equal(quietIdle.cwd, "/wt");
+  assert.equal(sessionFallback(state, "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV", "/main"), "/wt");
+  const skill = onToolBefore(state, {
+    tool: "skill",
+    sessionID: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    callID: "call-1",
+  }, { id: "why" }, 1000);
+  assert.deepEqual(skill, [[
+    "tool_call",
+    "tool_name=skill",
+    "session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "skill=why",
+  ]]);
+  assert.equal(JSON.stringify(opened).includes("SUPER_SECRET"), false);
+  const read = attributionOf("read", { path: "README.md" }, sessionFallback(state, "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV", "/main"));
+  assert.equal(read.cwd, "/wt");
+  assert.equal(read.file, "README.md");
 });
 
 test("OpenCode tool hooks record skill, agent, duration, and ok without args", () => {

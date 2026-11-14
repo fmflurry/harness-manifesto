@@ -25,7 +25,8 @@ The log has no prompts, tool arguments, secrets, or absolute paths. `skill` and 
 | Field | Type | When |
 | --- | --- | --- |
 | `tool_name` | string | Tool call or tool result. `^[A-Za-z0-9._:-]{1,64}$` |
-| `skill` | string | Tool name is Skill, `skill`, `use_skill`, or `load_skill`. `^[a-z0-9:-]{1,64}$` after lowercasing and stripping a leading `/` |
+| `skill` | string | Tool name is Skill, `skill`, `use_skill`, or `load_skill`. Taken from `skill`, `skill_name`, `name`, `id`, or a leading-slash command. `^[a-z0-9:-]{1,64}$` after lowercasing and stripping a leading `/` |
+| `call_id` | string | Optional. The host `tool_use_id` when it matches `^[A-Za-z0-9._:-]{1,80}$`. A second write with the same id, kind, and timestamp is dropped. Not a report field |
 | `agent` | string | `subagent_type` on Task/Agent (OpenCode: `task`) and on `subagent_spawn` / `subagent_stop`. `^[A-Za-z0-9._:-]{1,64}$` |
 | `duration_ms` | number or null | On `tool_result`. Null when the host did not send a duration. Non-negative and below 24 hours |
 | `ok` | boolean | On `tool_result`. False when the host reports an error; otherwise true |
@@ -100,6 +101,10 @@ OpenCode (`plugins/kpi/index.ts`):
 - `session.idle` and `session.deleted` write `session_end` for a root session, or `subagent_stop` with `agent` for a child session. `tokens` is the sum of the stored message totals.
 
 `install.sh` merges `SessionStart` and `PostToolUse` commands for `kpi-emit.sh` into Claude settings. Global installs use `~/.claude/hooks`. Project installs (`--local`) use `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"`. Conductor and Monolith share that merge. The merge keeps one command per event, matcher, and script. A matcher of `*`, an empty matcher, and a missing matcher are the same match-all.
+
+The user-level `~/.claude/hooks/kpi-emit.sh` writes the event. It returns without writing only when `.claude/settings.json` or `.claude/settings.local.json` in that checkout also runs a different `kpi-emit.sh`, such as the `$CLAUDE_PROJECT_DIR` project install. A vendored copy that those settings do not call does not swallow the event. When it does skip, it prints `kpi-emit: skipped, project hook is registered` on stderr. A second `session_start`, `session_end`, or `subagent_stop` for the same session in the same second is dropped, and stderr says `kpi-emit: skipped duplicate`. Outside the test suite the hook detaches and that stderr is discarded; the feature report still names a missing log or an empty selection.
+
+OpenCode 2 `session.created` and `session.moved` carry `data.location.directory`. The plugin keeps that directory for the session and passes it to the hook. A later tool call uses it when the tool input has no `workdir` and no file path. `session.usage.updated` and `session.usage.recorded` store `tokens.input` plus `tokens.output` (cache and reasoning stay out). `session.idle` and `session.deleted` emit that total. The skill tool's `id` is the skill name. The report does not read `opencode.db`.
 
 ## Feature report
 

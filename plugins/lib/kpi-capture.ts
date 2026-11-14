@@ -16,6 +16,7 @@ export type KpiState = {
   agent: Map<string, string>;
   messages: Map<string, number>;
   started: Map<string, number>;
+  dirs: Map<string, string>;
 };
 
 export function createKpiState(): KpiState {
@@ -24,6 +25,7 @@ export function createKpiState(): KpiState {
     agent: new Map(),
     messages: new Map(),
     started: new Map(),
+    dirs: new Map(),
   };
 }
 
@@ -113,6 +115,7 @@ export function skillFrom(args: unknown): string {
     sanitiseSkill(rec.skill) ||
     sanitiseSkill(rec.skill_name) ||
     sanitiseSkill(rec.name) ||
+    sanitiseSkill(rec.id) ||
     sanitiseSkill(rec.command)
   );
 }
@@ -295,6 +298,71 @@ export function onToolAfter(
     if (agent) args.push(`agent=${agent}`);
   }
   return args;
+}
+
+function locationDirectory(value: unknown): string {
+  const rec = asRecord(value);
+  return rec && typeof rec.directory === "string" ? rec.directory : "";
+}
+
+/** Directory of an OpenCode 2 session event. `data.location` wins over the bus location. */
+export function openCodeSessionDir(event: Record<string, unknown>): string {
+  const data = asRecord(event.data);
+  return locationDirectory(data?.location) || locationDirectory(event.location);
+}
+
+export function sessionFallback(state: KpiState, sessionID: unknown, fallback: string): string {
+  const sid = sanitiseId(sessionID);
+  if (!sid) return fallback;
+  return state.dirs.get(sid) || fallback;
+}
+
+/**
+ * Adapt an OpenCode 2 bus event (`type` + `data`) into KPI hook args.
+ * `session.usage.*` only stores the token total. `session.moved` only stores the directory.
+ */
+export function onOpenCodeV2(state: KpiState, event: Record<string, unknown>): { batches: string[][]; cwd: string } {
+  const type = typeof event.type === "string" ? event.type : "";
+  const data = asRecord(event.data) ?? {};
+  const sid = sanitiseId(data.sessionID);
+  const dataDir = locationDirectory(data.location);
+  let cwd = "";
+  if (type === "session.created" || type === "session.moved") {
+    cwd = openCodeSessionDir(event);
+    if (sid && cwd) remember(state.dirs, sid, cwd, SESSION_CAP);
+  } else if (type === "session.idle" || type === "session.deleted") {
+    cwd = dataDir || (sid ? state.dirs.get(sid) ?? "" : "");
+  }
+  if (type === "session.created") {
+    return {
+      cwd,
+      batches: onOpenCodeEvent(state, {
+        type,
+        properties: {
+          sessionID: data.sessionID,
+          info: {
+            id: data.sessionID,
+            parentID: data.parentID,
+            agent: data.agent,
+            mode: data.agent,
+          },
+        },
+      }),
+    };
+  }
+  if (type === "session.idle" || type === "session.deleted") {
+    return {
+      cwd,
+      batches: onOpenCodeEvent(state, { type, properties: { sessionID: data.sessionID } }),
+    };
+  }
+  if (type === "session.usage.updated" || type === "session.usage.recorded") {
+    onOpenCodeEvent(state, {
+      type: "message.updated",
+      properties: { info: { sessionID: data.sessionID, id: "latest", tokens: data.tokens } },
+    });
+  }
+  return { batches: [], cwd: type === "session.moved" ? cwd : "" };
 }
 
 export function onOpenCodeEvent(state: KpiState, event: Record<string, unknown>): string[][] {

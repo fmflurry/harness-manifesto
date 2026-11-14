@@ -23,7 +23,7 @@ const WARNING_TEXT = {
   'log absent': 'kpi feature: warning: log absent',
   'jq missing': 'kpi feature: warning: jq missing',
   'capture disabled': 'kpi feature: warning: capture disabled (AGENT_HARNESS_KPI=0)',
-  'empty selection': 'kpi feature: warning: empty selection',
+  'empty selection': 'kpi feature: warning: empty selection (no events matched this repo and branch)',
   'invalid JSON lines': 'kpi feature: warning: invalid JSON lines',
   'no session events for branch': 'kpi feature: warning: no session events for branch',
 };
@@ -415,17 +415,21 @@ function featureLine(report) {
   return `${feature.repo || 'unknown'}  ${feature.branch || 'unknown'}  pr ${pr}${extra}`;
 }
 
+function missingNumber(report, reason) {
+  return report.coverage?.collected === false ? 'n/a' : `n/a (${reason})`;
+}
+
 export function formatFeatureText(report) {
   const duration = report.duration_ms
     ? `mean ${formatMs(report.duration_ms.mean)} max ${formatMs(report.duration_ms.max)} n ${report.duration_ms.n}`
-    : 'n/a';
+    : missingNumber(report, 'no duration_ms');
   const guardDetail = Object.entries(report.guards).map(([name, count]) => `${name} ${count}`).join(', ');
-  return [
+  const lines = [
     `feature  ${featureLine(report)}`,
     `wall     ${formatDuration(report.wall_ms)}`,
     `active   ${formatActive(report)}`,
     `sessions ${sessionText(report)}`,
-    `tokens   ${report.tokens == null ? 'n/a' : String(report.tokens)}`,
+    `tokens   ${report.tokens == null ? missingNumber(report, 'no session total') : String(report.tokens)}`,
     `tools    ${detailText(report, report.tools, 'count')}`,
     `skills   ${detailText(report, report.skills, 'count')}`,
     `agents   ${detailText(report, report.agents, 'calls')}`,
@@ -435,9 +439,10 @@ export function formatFeatureText(report) {
     `review   ${countText(report.review_rounds)}`,
     `fix      ${countText(report.fix_rounds)}`,
     `events   ${report.events}`,
-    `partial  ${report.partial ? 'yes' : 'no'}`,
-    '',
-  ].join('\n');
+  ];
+  if (report.coverage?.reason) lines.push(`coverage ${report.coverage.reason}`);
+  lines.push(`partial  ${report.partial ? 'yes' : 'no'}`, '');
+  return lines.join('\n');
 }
 
 function escapeHtml(value) {
