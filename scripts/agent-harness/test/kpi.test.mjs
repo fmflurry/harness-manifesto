@@ -572,6 +572,11 @@ test('two guards in the same second both stay', () => {
   assert.deepEqual(lines.map((line) => line.guard).sort(), ['ask', 'git']);
 });
 
+test('kpi-emit does not embed a Claude home path the Cursor plugin check rejects', () => {
+  const text = fs.readFileSync(emit, 'utf8');
+  assert.doesNotMatch(text, /(\$HOME|~)\/\.claude/);
+});
+
 test('the global hook records a session when settings only call the user-level script', () => {
   const home = tmpdir();
   const repoDir = path.join(home, 'repo');
