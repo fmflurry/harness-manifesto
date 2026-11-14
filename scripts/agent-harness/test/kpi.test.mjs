@@ -578,41 +578,50 @@ test('kpi-emit does not embed a Claude home path the Cursor plugin check rejects
 });
 
 test('the global hook records a session when settings only call the user-level script', () => {
-  const home = tmpdir();
-  const repoDir = path.join(home, 'repo');
-  fs.mkdirSync(path.join(repoDir, '.claude/hooks'), { recursive: true });
-  fs.writeFileSync(path.join(repoDir, '.claude/hooks/kpi-emit.sh'), '#!/bin/bash\nexit 0\n');
-  fs.writeFileSync(path.join(repoDir, '.claude/settings.json'), `${JSON.stringify({
-    hooks: {
-      PostToolUse: [{ hooks: [{ type: 'command', command: 'bash ~/.claude/hooks/kpi-emit.sh' }] }],
-      SessionStart: [{ hooks: [{ type: 'command', command: 'bash ~/.claude/hooks/kpi-emit.sh' }] }],
-    },
-  })}\n`);
-  fs.mkdirSync(path.join(home, '.claude/hooks'), { recursive: true });
-  const globalEmit = path.join(home, '.claude/hooks/kpi-emit.sh');
-  fs.copyFileSync(emit, globalEmit);
-  fs.chmodSync(globalEmit, 0o755);
-  const log = path.join(home, 'events.jsonl');
-  const init = spawnSync('git', ['init', '-q', '-b', 'feat'], { cwd: repoDir });
-  assert.equal(init.status, 0, init.stderr);
-  const ran = spawnSync('bash', [
-    globalEmit, 'tool_call', 'tool_name=Read', 'session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV',
-  ], {
-    encoding: 'utf8',
-    cwd: repoDir,
-    env: {
-      ...emitEnv(home, log),
-      AGENT_HARNESS_KPI_TS: '2026-11-14T12:00:00Z',
-      AGENT_HARNESS_TOOL: 'claude',
-    },
-  });
-  assert.equal(ran.status, 0, ran.stderr);
-  assert.equal(fs.existsSync(log), true, 'user-level hook wrote nothing');
-  const line = JSON.parse(fs.readFileSync(log, 'utf8'));
-  assert.equal(line.kind, 'tool_call');
-  assert.equal(line.tool_name, 'Read');
-  assert.equal(line.session_id, 'ses_01ARZ3NDEKTSV4RRFFQ69G5FAV');
-  assert.equal(line.tool, 'claude');
+  const commands = [
+    'bash ~/.claude/hooks/kpi-emit.sh',
+    'bash $HOME/.claude/hooks/kpi-emit.sh',
+    'bash "$HOME/.claude/hooks/kpi-emit.sh"',
+    'bash ${HOME}/.claude/hooks/kpi-emit.sh',
+    'bash "${HOME}/.claude/hooks/kpi-emit.sh"',
+  ];
+  for (const command of commands) {
+    const home = tmpdir();
+    const repoDir = path.join(home, 'repo');
+    fs.mkdirSync(path.join(repoDir, '.claude/hooks'), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, '.claude/hooks/kpi-emit.sh'), '#!/bin/bash\nexit 0\n');
+    fs.writeFileSync(path.join(repoDir, '.claude/settings.json'), `${JSON.stringify({
+      hooks: {
+        PostToolUse: [{ hooks: [{ type: 'command', command }] }],
+        SessionStart: [{ hooks: [{ type: 'command', command }] }],
+      },
+    })}\n`);
+    fs.mkdirSync(path.join(home, '.claude/hooks'), { recursive: true });
+    const globalEmit = path.join(home, '.claude/hooks/kpi-emit.sh');
+    fs.copyFileSync(emit, globalEmit);
+    fs.chmodSync(globalEmit, 0o755);
+    const log = path.join(home, 'events.jsonl');
+    const init = spawnSync('git', ['init', '-q', '-b', 'feat'], { cwd: repoDir });
+    assert.equal(init.status, 0, init.stderr);
+    const ran = spawnSync('bash', [
+      globalEmit, 'tool_call', 'tool_name=Read', 'session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    ], {
+      encoding: 'utf8',
+      cwd: repoDir,
+      env: {
+        ...emitEnv(home, log),
+        AGENT_HARNESS_KPI_TS: '2026-11-14T12:00:00Z',
+        AGENT_HARNESS_TOOL: 'claude',
+      },
+    });
+    assert.equal(ran.status, 0, `${command}\n${ran.stderr}`);
+    assert.equal(fs.existsSync(log), true, `${command}\n${ran.stderr}`);
+    const line = JSON.parse(fs.readFileSync(log, 'utf8'));
+    assert.equal(line.kind, 'tool_call', command);
+    assert.equal(line.tool_name, 'Read', command);
+    assert.equal(line.session_id, 'ses_01ARZ3NDEKTSV4RRFFQ69G5FAV', command);
+    assert.equal(line.tool, 'claude', command);
+  }
 });
 
 test('the same tool use is written once and a second use is kept', () => {

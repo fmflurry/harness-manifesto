@@ -143,6 +143,18 @@ test("OpenCode 2 skill id and session location reach the KPI args", () => {
     "session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     "tokens=11",
   ]]);
+  const busIdle = onOpenCodeV2(state, {
+    type: "session.idle",
+    location: { directory: "/main" },
+    data: { sessionID: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+  });
+  assert.equal(busIdle.cwd, "/wt");
+  const quietIdle = onOpenCodeV2(state, {
+    type: "session.idle",
+    data: { sessionID: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+  });
+  assert.equal(quietIdle.cwd, "/wt");
+  assert.equal(sessionFallback(state, "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV", "/main"), "/wt");
   const skill = onToolBefore(state, {
     tool: "skill",
     sessionID: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
