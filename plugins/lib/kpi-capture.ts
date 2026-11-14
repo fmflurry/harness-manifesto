@@ -324,9 +324,15 @@ export function sessionFallback(state: KpiState, sessionID: unknown, fallback: s
 export function onOpenCodeV2(state: KpiState, event: Record<string, unknown>): { batches: string[][]; cwd: string } {
   const type = typeof event.type === "string" ? event.type : "";
   const data = asRecord(event.data) ?? {};
-  const cwd = openCodeSessionDir(event);
   const sid = sanitiseId(data.sessionID);
-  if (sid && cwd) remember(state.dirs, sid, cwd, SESSION_CAP);
+  const dataDir = locationDirectory(data.location);
+  let cwd = "";
+  if (type === "session.created" || type === "session.moved") {
+    cwd = openCodeSessionDir(event);
+    if (sid && cwd) remember(state.dirs, sid, cwd, SESSION_CAP);
+  } else if (type === "session.idle" || type === "session.deleted") {
+    cwd = dataDir || (sid ? state.dirs.get(sid) ?? "" : "");
+  }
   if (type === "session.created") {
     return {
       cwd,

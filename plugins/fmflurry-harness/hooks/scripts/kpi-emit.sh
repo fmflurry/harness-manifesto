@@ -774,10 +774,12 @@ if [ -n "${AGENT_HARNESS_KPI_TS:-}" ]; then ts="$AGENT_HARNESS_KPI_TS"; else ts=
 # settings also run a different kpi-emit.sh, so the two copies are not both appended.
 # A vendored script that settings never call must not swallow the event.
 project_hook_registered() {
-  local top="$1" file line stripped global_home tilde_hook
+  local top="$1" file line stripped global_home tilde_hook dollar_hook brace_hook
   global_home="${HOME:-}/.claude/hooks/kpi-emit.sh"
-  # Joined in the shell. A single tilde path here fails the Cursor plugin check.
+  # Joined in the shell. A tilde or home-variable path in one piece fails the Cursor plugin check.
   tilde_hook="$(printf '~%s' "/.claude/hooks/kpi-emit.sh")"
+  dollar_hook="$(printf '%s%s' '$HOME' "/.claude/hooks/kpi-emit.sh")"
+  brace_hook="$(printf '%s%s' '${HOME}' "/.claude/hooks/kpi-emit.sh")"
   for file in "$top/.claude/settings.json" "$top/.claude/settings.local.json"; do
     [ -f "$file" ] || continue
     while IFS= read -r line || [ -n "$line" ]; do
@@ -787,6 +789,8 @@ project_hook_registered() {
       esac
       stripped="$line"
       stripped="${stripped//"$tilde_hook"/}"
+      stripped="${stripped//"$dollar_hook"/}"
+      stripped="${stripped//"$brace_hook"/}"
       stripped="${stripped//"$global_home"/}"
       case "$stripped" in
         *kpi-emit.sh*) return 0 ;;
