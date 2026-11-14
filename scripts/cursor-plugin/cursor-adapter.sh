@@ -42,6 +42,7 @@ case "$EVENT" in
           session_id: (.conversation_id // .session_id // ""),
           hook_event_name: "PostToolUse",
           tool_name: $tn,
+          tool_use_id: (.tool_use_id // ""),
           duration_ms: (
             (.duration_ms // .duration // .elapsed_ms // null)
             | if type == "number" and . >= 0 and . < 86400000 then floor else null end
@@ -57,7 +58,7 @@ case "$EVENT" in
             (.tool_input // {}) as $in
             | if ($tl == "skill" or $tl == "use_skill" or $tl == "load_skill") then
                 {
-                  skill: short($in.skill // $in.skill_name // $in.name; 80),
+                  skill: short($in.skill // $in.skill_name // $in.name // $in.id; 80),
                   command: short($in.command; 80)
                 }
               elif ($tl == "task" or $tl == "agent") then

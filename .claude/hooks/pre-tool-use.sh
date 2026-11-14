@@ -71,7 +71,7 @@ if [ -n "$KPI_TOOL" ] && [ -f "$KPI_SH" ]; then
     Skill|skill|use_skill|load_skill)
       KPI_SKILL="$(printf '%s' "${TASK_MARKER_INPUT:-}" | jq -r '
         def text: if type == "string" then . else "" end;
-        ((.tool_input.skill // .tool_input.skill_name // .tool_input.name // .skill // "") | text) as $n
+        ((.tool_input.skill // .tool_input.skill_name // .tool_input.name // .tool_input.id // .skill // "") | text) as $n
         | ((.tool_input.command // .command // "") | text | sub("^/+"; "")) as $c
         | (if $n != "" then $n else $c end | ascii_downcase) as $s
         | if ($s | test("^[a-z0-9:-]{1,64}$")) then $s else "" end
@@ -86,6 +86,10 @@ if [ -n "$KPI_TOOL" ] && [ -f "$KPI_SH" ]; then
   esac
   KPI_ARGS=(tool_call "tool_name=$KPI_TOOL")
   [ -n "$KPI_SESSION" ] && KPI_ARGS+=("session=$KPI_SESSION")
+  KPI_CALL="$(printf '%s' "${TASK_MARKER_INPUT:-}" | jq -r '.tool_use_id // empty' 2>/dev/null || true)"
+  if [[ "$KPI_CALL" =~ ^[A-Za-z0-9._:-]+$ ]] && [ "${#KPI_CALL}" -le 80 ]; then
+    KPI_ARGS+=("call_id=$KPI_CALL")
+  fi
   [ -n "$KPI_SKILL" ] && KPI_ARGS+=("skill=$KPI_SKILL")
   [ -n "$KPI_AGENT" ] && KPI_ARGS+=("agent=$KPI_AGENT")
   KPI_CWD="$(printf '%s' "${TASK_MARKER_INPUT:-}" | jq -r '.cwd // empty' 2>/dev/null || true)"

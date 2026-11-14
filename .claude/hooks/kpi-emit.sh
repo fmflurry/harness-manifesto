@@ -25,7 +25,7 @@ if [ "${AGENT_HARNESS_TEST:-}" != "1" ] && [ "${AGENT_HARNESS_KPI_DETACHED:-}" !
   exit 0
 fi
 
-HARNESS_VERSION="${AGENT_HARNESS_VERSION:-0.4.47}"
+HARNESS_VERSION="${AGENT_HARNESS_VERSION:-0.4.48}"
 TRANSCRIPT_MAX=8388608
 
 log="${AGENT_HARNESS_KPI_LOG:-}"
@@ -553,7 +553,7 @@ kind="" session="" tool_name="" guard="" outcome="" pr="" review="" verdict=""
 important="" nit="" pre_existing="" fix_iterations="" task="" task_kind="" pass=""
 mode="" tool_calls="" tokens="" wall_ms="" source="" ci_first_pass="" review_rounds=""
 time_to_merge_ms="" reverted_within_7d="" also_spawn="" skill="" agent=""
-duration_ms="" ok="" marked="" cli_mode=0
+duration_ms="" ok="" marked="" call_id="" cli_mode=0
 ATTR_DIR="" attr_explicit=0
 attr_cwd="${AGENT_HARNESS_KPI_CWD:-}"
 attr_command="${AGENT_HARNESS_KPI_COMMAND:-}"
@@ -589,6 +589,7 @@ take_pair() {
     reverted_within_7d) reverted_within_7d="$(bool_or_blank "$val")" ;;
     skill) skill="$val" ;;
     agent) agent="$val" ;;
+    call_id) call_id="$val" ;;
     duration_ms) duration_ms="$(num_or_blank "$val")" ;;
     ok) ok="$(bool_or_blank "$val")" ;;
   esac
@@ -601,7 +602,7 @@ if [ $# -eq 0 ]; then
     def num: if type == "number" and . >= 0 and . < 1000000000000 then floor else null end;
     def text: if type == "string" then . else "" end;
     def skill_of:
-      ((.tool_input.skill // .tool_input.skill_name // .tool_input.name // .skill // "") | text) as $n
+      ((.tool_input.skill // .tool_input.skill_name // .tool_input.name // .tool_input.id // .skill // "") | text) as $n
       | ((.tool_input.command // .command // "") | text | sub("^/+"; "")) as $c
       | (if $n != "" then $n else $c end | ascii_downcase) as $s
       | if ($s | test("^[a-z0-9:-]{1,64}$")) then $s else "" end;
@@ -631,6 +632,7 @@ if [ $# -eq 0 ]; then
       | ($tool | ascii_downcase) as $tl
       | {
           event: (.hook_event_name // "" | text),
+          call_id: (.tool_use_id // "" | text),
           session: (.session_id // .conversation_id // .sessionID // "" | text),
           tool_name: $tool,
           source: (.source // "" | text),
@@ -649,6 +651,7 @@ if [ $# -eq 0 ]; then
   ' 2>/dev/null || true)"
   [ -n "$meta" ] || exit 0
   event="$(printf '%s' "$meta" | jq -r '.event // empty' 2>/dev/null || true)"
+  call_id="$(printf '%s' "$meta" | jq -r '.call_id // empty' 2>/dev/null || true)"
   case "$event" in
     SessionStart) kind=session_start ;;
     Stop) kind=session_end ;;
@@ -740,6 +743,7 @@ if [[ ! "$task" =~ ^[A-Za-z0-9._-]+$ ]] || [ "${#task}" -gt 80 ]; then task=""; 
 if [[ ! "$task_kind" =~ ^[A-Za-z0-9._-]+$ ]] || [ "${#task_kind}" -gt 40 ]; then task_kind=""; fi
 if [[ ! "$skill" =~ ^[a-z0-9:-]{1,64}$ ]]; then skill=""; fi
 if [[ ! "$agent" =~ ^[A-Za-z0-9._:-]{1,64}$ ]]; then agent=""; fi
+if [[ ! "$call_id" =~ ^[A-Za-z0-9._:-]+$ ]] || [ "${#call_id}" -gt 80 ]; then call_id=""; fi
 if [ "$kind" = "tool_result" ] && [ -z "$ok" ]; then ok=true; fi
 
 if [ -z "$session" ]; then
@@ -766,7 +770,30 @@ fi
 if [ -n "${AGENT_HARNESS_KPI_TS:-}" ]; then ts="$AGENT_HARNESS_KPI_TS"; else ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"; fi
 [ -n "$ts" ] || exit 0
 
-# A global hook and a project-vendored hook both see the same block. The project copy writes it.
+# The user-level hook writes the event. It skips only when this checkout's Claude
+# settings also run a different kpi-emit.sh, so the two copies are not both appended.
+# A vendored script that settings never call must not swallow the event.
+project_hook_registered() {
+  local top="$1" file line stripped global_home
+  global_home="${HOME:-}/.claude/hooks/kpi-emit.sh"
+  for file in "$top/.claude/settings.json" "$top/.claude/settings.local.json"; do
+    [ -f "$file" ] || continue
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        *kpi-emit.sh*) ;;
+        *) continue ;;
+      esac
+      stripped="$line"
+      stripped="${stripped//"~/.claude/hooks/kpi-emit.sh"/}"
+      stripped="${stripped//"$global_home"/}"
+      case "$stripped" in
+        *kpi-emit.sh*) return 0 ;;
+      esac
+    done <"$file"
+  done
+  return 1
+}
+
 project_hook_owns_emit() {
   local self top proj pdir
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P 2>/dev/null)" || return 1
@@ -780,11 +807,37 @@ project_hook_owns_emit() {
   for proj in "$top/.claude/hooks/kpi-emit.sh" "$top/.opencode/hooks/kpi-emit.sh"; do
     [ -f "$proj" ] || continue
     pdir="$(cd "$(dirname "$proj")" && pwd -P 2>/dev/null)" || continue
-    [ "$pdir" != "$self" ] && return 0
+    if [ "$pdir" != "$self" ]; then
+      project_hook_registered "$top" && return 0
+      return 1
+    fi
   done
   return 1
 }
-project_hook_owns_emit && exit 0
+if project_hook_owns_emit; then
+  echo "kpi-emit: skipped, project hook is registered" >&2
+  exit 0
+fi
+
+event_seen() {
+  local want="$1"
+  [ -f "$log" ] || return 1
+  case "$want" in
+    tool_call|tool_result|subagent_spawn)
+      [ -n "$call_id" ] || return 1
+      ;;
+    session_start|session_end|subagent_stop) ;;
+    *) return 1 ;;
+  esac
+  awk -v ts="$ts" -v kind="$want" -v session="$session" -v repo="$repo" -v branch="$branch" -v tool="$tool" -v call="$call_id" '
+    index($0, "\"ts\":\"" ts "\"") && index($0, "\"kind\":\"" kind "\"") && index($0, "\"session_id\":\"" session "\"") && index($0, "\"repo\":\"" repo "\"") && index($0, "\"branch\":\"" branch "\"") && index($0, "\"tool\":\"" tool "\"") {
+      if (call != "" && index($0, "\"call_id\":\"" call "\"") == 0) next
+      found = 1
+      exit
+    }
+    END { exit found ? 0 : 1 }
+  ' "$log"
+}
 
 guard_block_seen() {
   [ "$kind" = guard_block ] || return 1
@@ -808,7 +861,7 @@ write_event() {
     --arg ci_first_pass "$ci_first_pass" --arg review_rounds "$review_rounds" \
     --arg time_to_merge_ms "$time_to_merge_ms" --arg reverted_within_7d "$reverted_within_7d" \
     --arg skill "$skill" --arg agent "$agent" --arg duration_ms "$duration_ms" --arg ok "$ok" \
-    --arg marked "$marked" '
+    --arg marked "$marked" --arg call_id "$call_id" '
       def num($s): if $s == "" then null else ($s | tonumber) end;
       def flag($s): if $s == "true" then true elif $s == "false" then false else null end;
       {
@@ -816,6 +869,7 @@ write_event() {
         repo: $repo, branch: $branch, session_id: $session, tokens: num($tokens)
       }
       + (if $tool_name == "" then {} else {tool_name: $tool_name} end)
+      + (if $call_id == "" then {} else {call_id: $call_id} end)
       + (if $skill == "" then {} else {skill: $skill} end)
       + (if $agent == "" then {} else {agent: $agent} end)
       + (if $kind == "tool_result" then
@@ -856,15 +910,16 @@ write_event() {
 mkdir -p "$(dirname "$log")" 2>/dev/null || exit 0
 [ "$kind" = session_bind ] && write_binding || true
 held=0
-if [ "$kind" = guard_block ]; then
-  lock="${log}.guard.lock"
-  _i=0
-  while [ "$_i" -lt 20 ]; do
-    if mkdir "$lock" 2>/dev/null; then held=1; break; fi
-    _i=$((_i + 1))
-    sleep 0.02
-  done
-  if [ "$held" = 1 ] && guard_block_seen; then
+lock="${log}.guard.lock"
+_i=0
+while [ "$_i" -lt 20 ]; do
+  if mkdir "$lock" 2>/dev/null; then held=1; break; fi
+  _i=$((_i + 1))
+  sleep 0.02
+done
+if [ "$held" = 1 ]; then
+  if { [ "$kind" = guard_block ] && guard_block_seen; } || event_seen "$kind"; then
+    echo "kpi-emit: skipped duplicate ${kind}" >&2
     rmdir "$lock" 2>/dev/null || true
     exit 0
   fi
@@ -872,7 +927,9 @@ fi
 {
   write_event "$kind"
   if [ "$also_spawn" = 1 ]; then
-    write_event subagent_spawn
+    if ! event_seen subagent_spawn; then
+      write_event subagent_spawn
+    fi
   fi
 } >>"$log" 2>/dev/null || true
 [ "$held" = 1 ] && rmdir "$lock" 2>/dev/null || true

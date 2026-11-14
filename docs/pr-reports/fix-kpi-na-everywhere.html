@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KPI report was N/A because the hook never wrote</title>
+<style>
+  :root {
+    --bg: #FAF6EE;
+    --bg-soft: #F3EDE0;
+    --card: #FFFCF6;
+    --text: #3A342C;
+    --muted: #7A7164;
+    --line: #D9CFC0;
+    --accent: #8B6F47;
+    --accent-2: #6B8F71;
+    --accent-4: #9B6B6B;
+    --shadow: 0 8px 28px rgba(58, 52, 44, 0.07);
+    --radius: 16px;
+    --serif: "Iowan Old Style", Palatino, Georgia, serif;
+    --sans: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    line-height: 1.55;
+    margin: 0 auto;
+    max-width: 1100px;
+    padding: 2rem 1.25rem 3.5rem;
+  }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 0.4rem; }
+  h2 { font-family: var(--sans); font-size: 1.05rem; letter-spacing: 0.02em; margin: 0 0 0.6rem; }
+  p { max-width: 42rem; }
+  .lead { color: var(--muted); font-size: 1.05rem; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.25rem; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.15rem 1.25rem;
+  }
+  .tag {
+    display: inline-block;
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+    margin-bottom: 0.6rem;
+  }
+  .bad { background: #F3E4E4; color: var(--accent-4); }
+  .good { background: #E5EFE6; color: #3E6244; }
+  pre {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.45;
+    background: var(--bg-soft);
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    overflow-x: auto;
+    margin: 0;
+  }
+  ol { max-width: 42rem; padding-left: 1.2rem; }
+  li { margin: 0.35rem 0; }
+  code { font-family: var(--mono); font-size: 0.9em; }
+  @media (max-width: 800px) {
+    .grid { grid-template-columns: 1fr; }
+    body { padding: 1.25rem 1rem 2.5rem; }
+  }
+</style>
+</head>
+<body>
+  <h1>The KPI report was empty because the hook threw the event away</h1>
+  <p class="lead">Claude settings in this repo call <code>~/.claude/hooks/kpi-emit.sh</code>. Since commit <code>8443c11</code> (PR #59) that user-level hook exited as soon as it saw a vendored <code>kpi-emit.sh</code>. Nothing was written. PR #83 then printed N/A for every uncollected count.</p>
+
+  <div class="grid">
+    <section class="card">
+      <span class="tag bad">Before</span>
+      <h2>Log never created</h2>
+      <pre>feature  fmflurry/harness-manifesto  fix/kpi-na-everywhere  pr n/a
+wall     n/a
+active   n/a
+sessions N/A
+tokens   n/a
+tools    N/A
+skills   N/A
+agents   N/A
+failures N/A
+durations n/a
+guards   N/A
+review   N/A
+fix      N/A
+events   0
+coverage log missing
+partial  yes
+
+kpi feature: warning: log absent</pre>
+    </section>
+    <section class="card">
+      <span class="tag good">After</span>
+      <h2>Same checkout, one OpenCode session</h2>
+      <pre>feature  fmflurry/widget  feat/widget  pr n/a
+wall     1m00s
+active   1m00s (gaps over 5m excluded)
+sessions cursor 0, claude 0, opencode 1
+tokens   11
+tools    read 1, skill 1
+skills   why 1
+agents   main 2
+failures 1 (skill 1)
+durations mean 13ms max 18ms n 2
+guards   0
+review   0
+fix      0
+events   6
+partial  no</pre>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:1rem">
+    <h2>What changed</h2>
+    <ol>
+      <li>The user-level hook writes unless <code>.claude/settings.json</code> also runs a different project <code>kpi-emit.sh</code>. A skip prints <code>kpi-emit: skipped, project hook is registered</code>.</li>
+      <li>The same <code>tool_use_id</code> in one second is stored once, so user settings and project settings calling the same global script do not double the counts. A duplicate prints <code>kpi-emit: skipped duplicate</code>.</li>
+      <li>OpenCode 2 <code>data.location.directory</code> is the session directory for later tools. The skill tool's <code>id</code> is the skill name. Token totals still use <code>input</code> plus <code>output</code>.</li>
+      <li>A text report with no events now ends with <code>coverage log missing</code> or <code>coverage empty selection</code>. A collected report says <code>n/a (no session total)</code> or <code>n/a (no duration_ms)</code> when that one number was not sent.</li>
+    </ol>
+    <p>The report still reads <code>~/.agent-harness/kpi/events.jsonl</code>. It does not read <code>opencode.db</code>. Reinstall the harness so <code>~/.claude/hooks/kpi-emit.sh</code> is this version. Events that were never written are not backfilled. The Metrics panel is this cloud session: the log was never created here, so that panel stays on <code>log missing</code>. The After card is the regression fixture, a real OpenCode session id, skill id, durations, and token total, recorded by the fixed user-level hook inside a checkout that vendors the script.</p>
+  </section>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/harness-manifesto  fix/kpi-na-everywhere  pr n/a. Status: partial. Coverage: log missing.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr></table>
+<p style="margin:10px 0 0">Tools: N/A</p>
+<p style="margin:4px 0 0">Skills: N/A</p>
+<p style="margin:4px 0 0">Agents: N/A</p>
+<p style="margin:4px 0 0">Failure tools: N/A. Durations: n/a.</p>
+</section>
+</body>
+</html>

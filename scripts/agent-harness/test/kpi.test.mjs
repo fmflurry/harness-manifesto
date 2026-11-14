@@ -51,7 +51,7 @@ test('kpi-emit appends a stamped event and drops prompt text', () => {
   assert.equal(lines[0].tool_name, 'Bash');
   assert.equal(lines[0].session_id, 'sess-1');
   assert.equal(lines[0].tokens, null);
-  assert.equal(lines[0].harness_version, '0.4.47');
+  assert.equal(lines[0].harness_version, '0.4.48');
   assert.match(lines[0].ts, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(JSON.stringify(lines[0]).includes('super-secret-token'), false);
   assert.equal(JSON.stringify(lines[0]).includes('tool_input'), false);
@@ -99,7 +99,7 @@ test('kpi-emit records Claude token totals and leaves Cursor tokens null', () =>
 test('version stamp matches the cursor plugin', () => {
   const config = JSON.parse(fs.readFileSync(path.join(repo, 'scripts/cursor-plugin/config.json'), 'utf8'));
   const script = fs.readFileSync(emit, 'utf8');
-  assert.equal(config.version, '0.4.47');
+  assert.equal(config.version, '0.4.48');
   assert.match(script, new RegExp(`AGENT_HARNESS_VERSION:-${config.version}`));
 });
 
@@ -572,11 +572,170 @@ test('two guards in the same second both stay', () => {
   assert.deepEqual(lines.map((line) => line.guard).sort(), ['ask', 'git']);
 });
 
-test('the global hook skips when the repo vendors kpi-emit', () => {
+test('the global hook records a session when settings only call the user-level script', () => {
   const home = tmpdir();
   const repoDir = path.join(home, 'repo');
   fs.mkdirSync(path.join(repoDir, '.claude/hooks'), { recursive: true });
   fs.writeFileSync(path.join(repoDir, '.claude/hooks/kpi-emit.sh'), '#!/bin/bash\nexit 0\n');
+  fs.writeFileSync(path.join(repoDir, '.claude/settings.json'), `${JSON.stringify({
+    hooks: {
+      PostToolUse: [{ hooks: [{ type: 'command', command: 'bash ~/.claude/hooks/kpi-emit.sh' }] }],
+      SessionStart: [{ hooks: [{ type: 'command', command: 'bash ~/.claude/hooks/kpi-emit.sh' }] }],
+    },
+  })}\n`);
+  fs.mkdirSync(path.join(home, '.claude/hooks'), { recursive: true });
+  const globalEmit = path.join(home, '.claude/hooks/kpi-emit.sh');
+  fs.copyFileSync(emit, globalEmit);
+  fs.chmodSync(globalEmit, 0o755);
+  const log = path.join(home, 'events.jsonl');
+  const init = spawnSync('git', ['init', '-q', '-b', 'feat'], { cwd: repoDir });
+  assert.equal(init.status, 0, init.stderr);
+  const ran = spawnSync('bash', [
+    globalEmit, 'tool_call', 'tool_name=Read', 'session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV',
+  ], {
+    encoding: 'utf8',
+    cwd: repoDir,
+    env: {
+      ...emitEnv(home, log),
+      AGENT_HARNESS_KPI_TS: '2026-11-14T12:00:00Z',
+      AGENT_HARNESS_TOOL: 'claude',
+    },
+  });
+  assert.equal(ran.status, 0, ran.stderr);
+  assert.equal(fs.existsSync(log), true, 'user-level hook wrote nothing');
+  const line = JSON.parse(fs.readFileSync(log, 'utf8'));
+  assert.equal(line.kind, 'tool_call');
+  assert.equal(line.tool_name, 'Read');
+  assert.equal(line.session_id, 'ses_01ARZ3NDEKTSV4RRFFQ69G5FAV');
+  assert.equal(line.tool, 'claude');
+});
+
+test('the same tool use is written once and a second use is kept', () => {
+  const home = tmpdir();
+  const log = path.join(home, 'events.jsonl');
+  const payload = (id) => JSON.stringify({
+    hook_event_name: 'PostToolUse',
+    session_id: 'sess-dup',
+    tool_name: 'Read',
+    tool_use_id: id,
+    duration_ms: 12,
+    cwd: repo,
+  });
+  const env = { ...emitEnv(home, log), AGENT_HARNESS_KPI_TS: '2026-11-14T12:00:03Z', AGENT_HARNESS_TOOL: 'claude' };
+  const first = spawnSync('bash', [emit], { encoding: 'utf8', input: payload('toolu_01READAAAA'), cwd: repo, env });
+  const second = spawnSync('bash', [emit], { encoding: 'utf8', input: payload('toolu_01READAAAA'), cwd: repo, env });
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(second.status, 0, second.stderr);
+  const same = fs.readFileSync(log, 'utf8').trim().split('\n');
+  assert.equal(same.length, 1);
+  const other = spawnSync('bash', [emit], {
+    encoding: 'utf8',
+    input: payload('toolu_01READBBBB'),
+    cwd: repo,
+    env,
+  });
+  assert.equal(other.status, 0, other.stderr);
+  const lines = fs.readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal(lines.length, 2);
+  assert.deepEqual(lines.map((line) => line.call_id).sort(), ['toolu_01READAAAA', 'toolu_01READBBBB']);
+});
+
+test('a realistic OpenCode session through the user-level hook is not all N/A', () => {
+  const home = tmpdir();
+  const repoDir = path.join(home, 'widget');
+  fs.mkdirSync(repoDir, { recursive: true });
+  const git = (args) => {
+    const ran = spawnSync('git', args, { cwd: repoDir, encoding: 'utf8' });
+    assert.equal(ran.status, 0, `${args.join(' ')}\n${ran.stderr}`);
+  };
+  git(['init', '-q', '-b', 'feat/widget']);
+  git(['config', 'user.email', 't@example.com']);
+  git(['config', 'user.name', 't']);
+  fs.writeFileSync(path.join(repoDir, 'README.md'), 'hi\n');
+  git(['add', 'README.md']);
+  git(['commit', '-qm', 'init']);
+  git(['remote', 'add', 'origin', 'https://github.com/fmflurry/widget.git']);
+  fs.mkdirSync(path.join(repoDir, '.claude/hooks'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, '.claude/hooks/kpi-emit.sh'), '#!/bin/bash\nexit 0\n');
+  fs.writeFileSync(path.join(repoDir, '.claude/settings.json'), `${JSON.stringify({
+    hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: 'bash ~/.claude/hooks/kpi-emit.sh' }] }] },
+  })}\n`);
+  fs.mkdirSync(path.join(home, '.claude/hooks'), { recursive: true });
+  const globalEmit = path.join(home, '.claude/hooks/kpi-emit.sh');
+  fs.copyFileSync(emit, globalEmit);
+  fs.chmodSync(globalEmit, 0o755);
+  const log = path.join(home, 'events.jsonl');
+  const session = 'ses_01ARZ3NDEKTSV4RRFFQ69G5FAV';
+  const fire = (ts, args, extra = {}) => {
+    const ran = spawnSync('bash', [globalEmit, ...args], {
+      encoding: 'utf8',
+      cwd: repoDir,
+      env: {
+        ...emitEnv(home, log),
+        AGENT_HARNESS_KPI_TS: ts,
+        AGENT_HARNESS_TOOL: 'opencode',
+        ...extra,
+      },
+    });
+    assert.equal(ran.status, 0, ran.stderr);
+  };
+  fire('2026-11-14T12:00:00Z', ['session_start', `session=${session}`]);
+  fire('2026-11-14T12:00:01Z', ['tool_call', 'tool_name=read', `session=${session}`], {
+    AGENT_HARNESS_KPI_FILE: path.join(repoDir, 'README.md'),
+  });
+  fire('2026-11-14T12:00:02Z', [
+    'tool_result', 'tool_name=read', `session=${session}`, 'ok=true', 'duration_ms=18',
+  ], { AGENT_HARNESS_KPI_FILE: path.join(repoDir, 'README.md') });
+  fire('2026-11-14T12:00:03Z', ['tool_call', 'tool_name=skill', `session=${session}`, 'skill=why']);
+  fire('2026-11-14T12:00:04Z', [
+    'tool_result', 'tool_name=skill', `session=${session}`, 'skill=why', 'ok=false', 'duration_ms=7',
+  ]);
+  fire('2026-11-14T12:01:00Z', ['session_end', `session=${session}`, 'tokens=11']);
+  const report = spawnSync(process.execPath, [
+    path.join(repo, 'scripts/agent-harness/kpi-feature.mjs'),
+    '--json', '--no-metrics', '--log', log, '--repo', 'fmflurry/widget', '--branch', 'feat/widget',
+  ], { encoding: 'utf8', cwd: repoDir });
+  assert.equal(report.status, 0, report.stderr);
+  const body = JSON.parse(report.stdout);
+  assert.equal(body.coverage.collected, true, `${report.stderr}\n${report.stdout}`);
+  assert.equal(body.coverage.reason, null);
+  assert.equal(body.sessions.opencode, 1);
+  assert.equal(body.sessions.claude, 0);
+  assert.equal(body.sessions.cursor, 0);
+  assert.equal(body.tokens, 11);
+  assert.equal(body.tool_failures, 1);
+  assert.equal(body.guard_blocks, 0);
+  assert.equal(body.review_rounds, 0);
+  assert.equal(body.fix_rounds, 0);
+  assert.equal(body.duration_ms.n, 2);
+  assert.deepEqual(body.tools.map((row) => row.name).sort(), ['read', 'skill']);
+  assert.deepEqual(body.skills, [{ name: 'why', count: 1 }]);
+  const text = spawnSync(process.execPath, [
+    path.join(repo, 'scripts/agent-harness/kpi-feature.mjs'),
+    '--no-metrics', '--log', log, '--repo', 'fmflurry/widget', '--branch', 'feat/widget',
+  ], { encoding: 'utf8', cwd: repoDir });
+  assert.equal(text.status, 0, text.stderr);
+  assert.doesNotMatch(text.stdout, /sessions N\/A/);
+  assert.doesNotMatch(text.stdout, /tools\s+N\/A/);
+  assert.match(text.stdout, /opencode 1/);
+  assert.match(text.stdout, /tokens\s+11/);
+  assert.match(text.stdout, /why 1/);
+  assert.match(text.stdout, /durations mean/);
+  assert.match(text.stderr, /^(?![\s\S]*kpi feature: warning:)/);
+});
+
+test('the global hook skips when settings run the project script', () => {
+  const home = tmpdir();
+  const repoDir = path.join(home, 'repo');
+  fs.mkdirSync(path.join(repoDir, '.claude/hooks'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, '.claude/hooks/kpi-emit.sh'), '#!/bin/bash\nexit 0\n');
+  fs.writeFileSync(path.join(repoDir, '.claude/settings.json'), `${JSON.stringify({
+    hooks: {
+      PostToolUse: [{
+        hooks: [{ type: 'command', command: 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/kpi-emit.sh"' }],
+      }],
+    },
+  })}\n`);
   fs.mkdirSync(path.join(home, '.claude/hooks'), { recursive: true });
   const globalEmit = path.join(home, '.claude/hooks/kpi-emit.sh');
   fs.copyFileSync(emit, globalEmit);
@@ -590,6 +749,7 @@ test('the global hook skips when the repo vendors kpi-emit', () => {
     env: { ...emitEnv(home, log), AGENT_HARNESS_KPI_TS: '2026-10-28T00:00:03Z' },
   });
   assert.equal(ran.status, 0, ran.stderr);
+  assert.match(ran.stderr, /project hook is registered/);
   assert.equal(fs.existsSync(log), false);
 });
 

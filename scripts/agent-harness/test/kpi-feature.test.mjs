@@ -121,7 +121,7 @@ test('tokens stay n/a when the host sent none', () => {
   ];
   const report = aggregateFeature(rows, { repo: 'o/r', branch: 'feat' });
   assert.equal(report.tokens, null);
-  assert.match(formatFeatureText(report), /tokens\s+n\/a/);
+  assert.match(formatFeatureText(report), /tokens\s+n\/a \(no session total\)/);
   assert.match(formatMetricsMarkdown(report), /\| Tokens \| n\/a \|/);
   assert.equal(report.partial, false);
 });

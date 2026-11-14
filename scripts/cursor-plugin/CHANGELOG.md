@@ -2,6 +2,10 @@
 
 Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cursor-plugin/config.json` and is copied into `.cursor-plugin/plugin.json` by `node scripts/build-cursor-plugin.mjs`.
 
+## [0.4.48] - 2026-11-14
+
+- The user-level KPI hook was returning before it wrote whenever the checkout contained `kpi-emit.sh`. This repo's Claude settings call `~/.claude/hooks/kpi-emit.sh`, so every count in `kpi feature` was N/A. The user-level hook now writes unless settings also run a different project script. A repeated tool use with the same id, and a repeated session boundary in the same second, are written once. OpenCode 2 session location and the skill tool's `id` are recorded. Reinstall so the installed hook updates. Events that were never written are not backfilled.
+
 ## [0.4.47] - 2026-11-11
 
 - OpenCode agents no longer pin a model. A primary agent uses the model selected for the session, and a subagent uses the model of the agent that invoked it. The installer no longer writes `OPENCODE_MODEL_*` or `OPENCODE_REASONING_*`. A reinstall removes those exports, and the Windows bootstrap clears the User-scope variables it used to set. The `myMistral` provider definition stays available and is not a default.

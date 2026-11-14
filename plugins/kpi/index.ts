@@ -3,9 +3,10 @@ import { emitKpi } from "../lib/kpi-emit.ts";
 import {
   attributionOf,
   createKpiState,
-  onOpenCodeEvent,
+  onOpenCodeV2,
   onToolAfter,
   onToolBefore,
+  sessionFallback,
 } from "../lib/kpi-capture.ts";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -27,15 +28,14 @@ export default Plugin.define({
   async setup(ctx) {
     const directory = ctx.location.directory;
     const state = createKpiState();
-    const emit = (batches: string[][]): void => {
-      for (const args of batches) {
-        if (args.length > 0) emitKpi(directory, args);
-      }
-    };
 
     await ctx.tool.hook("execute.before", (event) => {
       try {
-        const hint = attributionOf(event.tool, event.input, directory);
+        const hint = attributionOf(
+          event.tool,
+          event.input,
+          sessionFallback(state, event.sessionID, directory),
+        );
         for (const args of onToolBefore(
           state,
           { tool: event.tool, sessionID: event.sessionID, callID: event.id },
@@ -44,13 +44,17 @@ export default Plugin.define({
           if (args.length > 0) emitKpi(directory, args, hint);
         }
       } catch {
-        /* fail open */
+        console.error("kpi: event dropped");
       }
     });
 
     await ctx.tool.hook("execute.after", (event) => {
       try {
-        const hint = attributionOf(event.tool, event.input, directory);
+        const hint = attributionOf(
+          event.tool,
+          event.input,
+          sessionFallback(state, event.sessionID, directory),
+        );
         const args = onToolAfter(
           state,
           {
@@ -63,7 +67,7 @@ export default Plugin.define({
         );
         if (args.length > 0) emitKpi(directory, args, hint);
       } catch {
-        /* fail open */
+        console.error("kpi: event dropped");
       }
     });
 
@@ -73,42 +77,13 @@ export default Plugin.define({
         try {
           const rec = asRecord(event);
           if (!rec) continue;
-          const type = rec.type;
-          const data = asRecord(rec.data) ?? {};
-
-          if (type === "session.created") {
-            emit(
-              onOpenCodeEvent(state, {
-                type,
-                properties: {
-                  sessionID: data.sessionID,
-                  info: {
-                    id: data.sessionID,
-                    parentID: data.parentID,
-                    title: data.title,
-                    mode: data.agent,
-                  },
-                },
-              }),
-            );
-            continue;
-          }
-
-          if (type === "session.idle" || type === "session.deleted") {
-            emit(onOpenCodeEvent(state, { type, properties: { sessionID: data.sessionID } }));
-            continue;
-          }
-
-          if (type === "session.usage.updated" || type === "session.usage.recorded") {
-            onOpenCodeEvent(state, {
-              type: "message.updated",
-              properties: {
-                info: { sessionID: data.sessionID, id: "latest", tokens: data.tokens },
-              },
-            });
+          const adapted = onOpenCodeV2(state, rec);
+          const hint = adapted.cwd ? { cwd: adapted.cwd } : undefined;
+          for (const args of adapted.batches) {
+            if (args.length > 0) emitKpi(directory, args, hint);
           }
         } catch {
-          /* fail open */
+          console.error("kpi: event dropped");
         }
       }
     })();
