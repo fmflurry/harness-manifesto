@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fix/harness-portable-hook-links — portable, git-ignored hook links</title>
+<style>
+  :root { --bg:#FAF6EE; --card:#FFFDF8; --ink:#2B2620; --muted:#6E655A; --line:#E6DCCB; --bad:#B4483A; --badbg:#F7E4DF; --good:#3F7A4E; --goodbg:#E3F0E2; --warn:#9A6B12; --warnbg:#F6ECD3; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family: Georgia, "Iowan Old Style", "Times New Roman", serif; line-height:1.45; }
+  main { max-width:1180px; margin:0 auto; padding:32px 28px 40px; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  h2 { font-size:19px; margin:0 0 10px; }
+  .sub { color:var(--muted); margin:0 0 22px; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size:0.86em; background:#F1EADC; padding:1px 5px; border-radius:4px; }
+  .grid { display:grid; gap:18px; }
+  .two { grid-template-columns: 1fr 1fr; }
+  .three { grid-template-columns: repeat(3, 1fr); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; box-shadow:0 1px 2px rgba(60,40,10,.05); }
+  .bad { border-left:6px solid var(--bad); }
+  .good { border-left:6px solid var(--good); }
+  .warn { border-left:6px solid var(--warn); }
+  .tag { display:inline-block; font-size:12px; font-family: ui-sans-serif, system-ui, sans-serif; letter-spacing:.04em; text-transform:uppercase; padding:2px 8px; border-radius:999px; margin-bottom:8px; }
+  .tag.bad { background:var(--badbg); color:var(--bad); border:none; }
+  .tag.good { background:var(--goodbg); color:var(--good); border:none; }
+  .tag.warn { background:var(--warnbg); color:var(--warn); border:none; }
+  .flow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:10px 0 4px; font-family: ui-sans-serif, system-ui, sans-serif; font-size:13px; }
+  .node { padding:7px 10px; border-radius:9px; border:1px solid var(--line); background:#fff; }
+  .node.x { background:var(--badbg); border-color:#E5B9B0; }
+  .node.ok { background:var(--goodbg); border-color:#BCD8BE; }
+  .arrow { color:var(--muted); }
+  ul { margin:6px 0 0; padding-left:20px; }
+  li { margin:3px 0; }
+  .fix h3 { margin:0 0 6px; font-size:16px; }
+  .fix .letter { display:inline-flex; width:26px; height:26px; border-radius:50%; align-items:center; justify-content:center; background:var(--good); color:#fff; font-family: ui-sans-serif, system-ui, sans-serif; font-size:13px; margin-right:6px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td, th { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:normal; font-family: ui-sans-serif, system-ui, sans-serif; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .num { font-family: ui-sans-serif, system-ui, sans-serif; font-weight:600; color:var(--good); }
+  section { margin-top:18px; }
+  @media (max-width: 860px) { .two, .three { grid-template-columns: 1fr; } main { padding:20px 16px; } h1 { font-size:23px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Portable, git-ignored hook links</h1>
+  <p class="sub"><code>fix/harness-portable-hook-links</code> · <code>commit-provenance.mjs setup</code> now writes relative links that stay out of project repos, and CI rejects any tracked absolute symlink.</p>
+
+  <div class="grid two">
+    <div class="card bad">
+      <span class="tag bad">Before</span>
+      <h2>Absolute links got versioned</h2>
+      <div class="flow">
+        <span class="node">setup on machine A</span><span class="arrow">→</span>
+        <span class="node x">git-hooks/commit-msg → /Users/a/…/commit-provenance.mjs</span><span class="arrow">→</span>
+        <span class="node">project repo commits it</span><span class="arrow">→</span>
+        <span class="node x">machine B: dangling link</span>
+      </div>
+      <ul>
+        <li>The hook dir under a project's <code>.claude/</code> or <code>.opencode/</code> showed up as untracked and got committed.</li>
+        <li>On another machine the links pointed nowhere, so <strong>commits went through silently without the provenance hooks</strong>.</li>
+        <li>A re-run of <code>setup</code> hit an existing link and <strong>crashed with <code>EEXIST</code></strong>.</li>
+      </ul>
+    </div>
+    <div class="card good">
+      <span class="tag good">After</span>
+      <h2>Relative, self-ignored, guarded</h2>
+      <div class="flow">
+        <span class="node">setup (any machine)</span><span class="arrow">→</span>
+        <span class="node ok">git-hooks/commit-msg → ../commit-provenance.mjs</span><span class="arrow">→</span>
+        <span class="node ok">git-hooks/.gitignore = *</span><span class="arrow">→</span>
+        <span class="node ok">resolves after copy / move</span>
+      </div>
+      <ul>
+        <li>Links resolve wherever the install target is copied or moved.</li>
+        <li>The dir ignores itself, so project repos never see it.</li>
+        <li>Re-running is idempotent; stale links and stray files are replaced.</li>
+      </ul>
+    </div>
+  </div>
+
+  <section class="grid three">
+    <div class="card fix">
+      <h3><span class="letter">A</span>Relative links</h3>
+      <p><code>scripts/agent-harness/commit-provenance.mjs</code> <code>setup</code> links each of the 28 git hooks to <code>../commit-provenance.mjs</code>, computed from the <em>realpath</em> of the hooks dir (macOS <code>/var → /private/var</code>).</p>
+      <ul>
+        <li>Correct link already there → skipped.</li>
+        <li>Stale symlink or regular file → removed and relinked.</li>
+        <li>A directory in a hook's place → refused (setup exits non-zero, contents kept).</li>
+      </ul>
+    </div>
+    <div class="card fix">
+      <h3><span class="letter">B</span>Self-ignoring dir</h3>
+      <p><code>git-hooks/.gitignore</code> holds <code>*</code>. It is written with <code>rmSync</code> then <code>writeFileSync(…, {flag:'wx'})</code>, so a planted <code>.gitignore</code> symlink is removed, not written through.</p>
+    </div>
+    <div class="card fix">
+      <h3><span class="letter">C</span>Portable-symlink guard</h3>
+      <p><code>scripts/check-portable-symlinks.sh</code> fails on any tracked symlink whose target is <code>/…</code> or <code>C:/…</code>, and fails when <code>git ls-files</code> fails. It runs in <code>.github/workflows/portable-symlinks.yml</code> (no path filter) and as the first step of <code>npm test</code>.</p>
+    </div>
+  </section>
+
+  <section class="grid two">
+    <div class="card">
+      <h2>Tests</h2>
+      <table>
+        <tr><th>Check</th><th>Result</th></tr>
+        <tr><td><code>node --test scripts/agent-harness/test/commit-provenance.test.mjs</code></td><td><span class="num">28 / 28</span> pass</td></tr>
+        <tr><td><code>bash scripts/agent-harness/test/run.sh</code></td><td><span class="num">2813</span> passed, 0 failed</td></tr>
+        <tr><td><code>bash scripts/check-portable-symlinks.sh</code> (this repo)</td><td>exit <span class="num">0</span></td></tr>
+        <tr><td><code>bash scripts/check-portable-symlinks.sh /tmp</code> (not a repo)</td><td>exit <span class="num">128</span></td></tr>
+        <tr><td><code>shellcheck</code>, <code>npm run typecheck:strict</code></td><td>exit <span class="num">0</span></td></tr>
+      </table>
+      <p class="sub" style="margin:10px 0 0">New cases: regular hook file replaced, directory refused, planted <code>.gitignore</code> symlink, idempotent re-run, move survival, enclosing-repo status, Windows drive target, non-repo guard.</p>
+    </div>
+    <div class="card warn">
+      <span class="tag warn">Follow-ups &amp; risks</span>
+      <ul>
+        <li><strong>gc.platform</strong> still tracks the old links: run <code>git rm -r --cached .claude/scripts/agent-harness/git-hooks .opencode/scripts/agent-harness/git-hooks</code> there.</li>
+        <li><code>scripts/lib/install-agent-harness.sh</code> writes through planted symlinks (pre-existing, not changed here).</li>
+        <li><code>skills/config-sync/SKILL.md</code> still shows absolute example paths.</li>
+        <li><code>npm test</code> has 5 pre-existing failures on <code>master</code>, unrelated to this branch.</li>
+      </ul>
+    </div>
+  </section>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/settings-opencode  fix/harness-portable-hook-links  pr n/a. Status: complete.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">1h11m</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">18m20s (gaps over 5m excluded)</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">cursor 1, claude 0, opencode 4</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">12</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">2</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">1</td></tr></table>
+<p style="margin:10px 0 0">Tools: shell 56, edit 9, Bash 2, read 2, skill 2, write 2, grep 1</p>
+<p style="margin:4px 0 0">Skills: git-workflow 1, pr-visual-report 1</p>
+<p style="margin:4px 0 0">Agents: main 27, coder 45, generalPurpose 2</p>
+<p style="margin:4px 0 0">Failure tools: none. Durations: mean 36s, max 16m55s, n 71.</p>
+</section>
+</main>
+</body>
+</html>

@@ -278,3 +278,143 @@ test('ignored source customizations cannot produce a clean revision', (t) => {
   run(dir, 'node', [source, 'capture', dir, target, '0.4.34', dir, '0']);
   assert.match(JSON.parse(run(dir, 'node', [source, 'resolve', target])).sha, /-dirty$/);
 });
+
+const relativeHookLink = '../commit-provenance.mjs';
+function installedTarget(t, parent = os.tmpdir()) {
+  const target = fs.mkdtempSync(path.join(parent, 'harness-target-'));
+  t.after(() => fs.rmSync(target, { recursive: true, force: true }));
+  const script = path.join(target, 'scripts/agent-harness/commit-provenance.mjs');
+  fs.mkdirSync(path.dirname(script), { recursive: true });
+  fs.copyFileSync(source, script);
+  fs.chmodSync(script, 0o755);
+  return { target, script, hooksDir: path.join(target, 'scripts/agent-harness/git-hooks') };
+}
+const hookLinks = (hooksDir) => fs.readdirSync(hooksDir).filter((name) => fs.lstatSync(path.join(hooksDir, name)).isSymbolicLink());
+function assertHookLinks(hooksDir, script) {
+  const links = hookLinks(hooksDir);
+  assert.ok(links.length > 0);
+  for (const name of ['prepare-commit-msg', 'commit-msg', 'pre-push']) assert.ok(links.includes(name), name);
+  for (const name of links) {
+    const dest = path.join(hooksDir, name);
+    assert.equal(fs.readlinkSync(dest), relativeHookLink, name);
+    assert.equal(fs.realpathSync(dest), fs.realpathSync(script), name);
+  }
+  const ignore = path.join(hooksDir, '.gitignore');
+  assert.ok(fs.lstatSync(ignore).isFile());
+  assert.equal(fs.readFileSync(ignore, 'utf8'), '*\n');
+}
+
+test('setup links every hook relatively to the installed script', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  run(target, 'node', [script, 'setup', target]);
+  assertHookLinks(hooksDir, script);
+});
+
+test('setup is idempotent', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  run(target, 'node', [script, 'setup', target]);
+  run(target, 'node', [script, 'setup', target]);
+  assertHookLinks(hooksDir, script);
+});
+
+test('setup replaces a regular hook file left by another install', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  fs.mkdirSync(hooksDir, { recursive: true });
+  const dest = path.join(hooksDir, 'commit-msg');
+  fs.writeFileSync(dest, '/nonexistent/other-machine/commit-provenance.mjs\n');
+  run(target, 'node', [script, 'setup', target]);
+  assert.ok(fs.lstatSync(dest).isSymbolicLink());
+  assert.equal(fs.readlinkSync(dest), relativeHookLink);
+  assert.equal(fs.realpathSync(dest), fs.realpathSync(script));
+});
+
+test('setup refuses to delete a directory in place of a hook', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  const dest = path.join(hooksDir, 'pre-commit');
+  fs.mkdirSync(dest, { recursive: true });
+  fs.writeFileSync(path.join(dest, 'keep'), 'keep\n');
+  const result = spawnSync('node', [script, 'setup', target], { cwd: target, encoding: 'utf8' });
+  assert.notEqual(result.status, 0);
+  assert.ok(fs.lstatSync(dest).isDirectory());
+  assert.equal(fs.readFileSync(path.join(dest, 'keep'), 'utf8'), 'keep\n');
+});
+
+test('setup does not write through a planted .gitignore symlink', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  const victimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-victim-'));
+  t.after(() => fs.rmSync(victimDir, { recursive: true, force: true }));
+  const victim = path.join(victimDir, 'victim');
+  fs.writeFileSync(victim, 'original\n');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  fs.symlinkSync(victim, path.join(hooksDir, '.gitignore'));
+  run(target, 'node', [script, 'setup', target]);
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'original\n');
+  assertHookLinks(hooksDir, script);
+});
+
+test('setup replaces absolute links left by another machine', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  fs.mkdirSync(hooksDir, { recursive: true });
+  for (const name of ['prepare-commit-msg', 'commit-msg', 'pre-push']) {
+    fs.symlinkSync('/nonexistent/other-machine/commit-provenance.mjs', path.join(hooksDir, name));
+  }
+  run(target, 'node', [script, 'setup', target]);
+  for (const name of hookLinks(hooksDir)) assert.equal(fs.readlinkSync(path.join(hooksDir, name)), relativeHookLink, name);
+  assert.equal(fs.realpathSync(path.join(hooksDir, 'prepare-commit-msg')), fs.realpathSync(script));
+});
+
+test('generated hook links stay out of the enclosing Git repository', (t) => {
+  const repo = setup(t);
+  const { target, script } = installedTarget(t, repo);
+  run(target, 'node', [script, 'setup', target]);
+  const status = run(repo, 'git', ['status', '--porcelain', '--untracked-files=all']);
+  assert.ok(status.includes('commit-provenance.mjs'), status);
+  assert.doesNotMatch(status, /git-hooks/);
+});
+
+test('hook links survive moving the installed target', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  run(target, 'node', [script, 'setup', target]);
+  const moved = `${target}-moved`;
+  fs.renameSync(target, moved);
+  t.after(() => fs.rmSync(moved, { recursive: true, force: true }));
+  const movedHooks = path.join(moved, path.relative(target, hooksDir));
+  const movedScript = path.join(moved, path.relative(target, script));
+  for (const name of hookLinks(movedHooks)) assert.equal(fs.realpathSync(path.join(movedHooks, name)), fs.realpathSync(movedScript), name);
+});
+
+test('portable symlink guard rejects tracked absolute symlinks only', (t) => {
+  const guard = path.resolve(path.dirname(source), '../check-portable-symlinks.sh');
+  const repo = setup(t);
+  fs.symlinkSync('file', path.join(repo, 'relative-link'));
+  run(repo, 'git', ['add', 'relative-link']);
+  run(repo, 'git', ['commit', '-qm', 'chore: relative link']);
+  const clean = spawnSync('bash', [guard, repo], { encoding: 'utf8' });
+  assert.equal(clean.status, 0, clean.stderr);
+  fs.symlinkSync('/nonexistent/other-machine/commit-provenance.mjs', path.join(repo, 'absolute-link'));
+  run(repo, 'git', ['add', 'absolute-link']);
+  run(repo, 'git', ['commit', '-qm', 'chore: absolute link']);
+  const dirty = spawnSync('bash', [guard, repo], { encoding: 'utf8' });
+  assert.notEqual(dirty.status, 0);
+  assert.match(dirty.stderr, /absolute-link -> \/nonexistent\/other-machine\/commit-provenance\.mjs/);
+  assert.doesNotMatch(dirty.stderr, /relative-link/);
+});
+
+test('portable symlink guard rejects tracked Windows drive symlinks', (t) => {
+  const guard = path.resolve(path.dirname(source), '../check-portable-symlinks.sh');
+  const repo = setup(t);
+  fs.symlinkSync('C:/x', path.join(repo, 'drive-link'));
+  run(repo, 'git', ['add', 'drive-link']);
+  run(repo, 'git', ['commit', '-qm', 'chore: drive link']);
+  const result = spawnSync('bash', [guard, repo], { encoding: 'utf8' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /drive-link -> C:\/x/);
+});
+
+test('portable symlink guard fails outside a Git repository', (t) => {
+  const guard = path.resolve(path.dirname(source), '../check-portable-symlinks.sh');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-not-repo-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const result = spawnSync('bash', [guard, dir], { encoding: 'utf8', env: { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(fs.realpathSync(dir)) } });
+  assert.notEqual(result.status, 0);
+});

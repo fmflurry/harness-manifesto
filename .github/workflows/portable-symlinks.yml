@@ -1,0 +1,22 @@
+name: portable-symlinks
+
+# No paths filter: a symlink can be added anywhere in the tree.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: No tracked symlink has an absolute target
+        run: bash scripts/check-portable-symlinks.sh

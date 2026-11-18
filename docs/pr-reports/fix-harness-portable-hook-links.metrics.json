@@ -1,0 +1,96 @@
+{
+  "feature": {
+    "repo": "fmflurry/settings-opencode",
+    "branch": "fix/harness-portable-hook-links",
+    "pr": null
+  },
+  "prs": [],
+  "wall_ms": 4299000,
+  "active_ms": 1100000,
+  "idle_gap_min": 5,
+  "sessions": {
+    "cursor": 1,
+    "claude": 0,
+    "opencode": 4
+  },
+  "tools": [
+    {
+      "name": "shell",
+      "count": 56
+    },
+    {
+      "name": "edit",
+      "count": 9
+    },
+    {
+      "name": "Bash",
+      "count": 2
+    },
+    {
+      "name": "read",
+      "count": 2
+    },
+    {
+      "name": "skill",
+      "count": 2
+    },
+    {
+      "name": "write",
+      "count": 2
+    },
+    {
+      "name": "grep",
+      "count": 1
+    }
+  ],
+  "skills": [
+    {
+      "name": "git-workflow",
+      "count": 1
+    },
+    {
+      "name": "pr-visual-report",
+      "count": 1
+    }
+  ],
+  "agents": [
+    {
+      "name": "main",
+      "calls": 27
+    },
+    {
+      "name": "coder",
+      "calls": 45
+    },
+    {
+      "name": "generalPurpose",
+      "calls": 2
+    }
+  ],
+  "tool_failures": 0,
+  "failure_tools": [],
+  "duration_ms": {
+    "n": 71,
+    "sum": 2539138,
+    "mean": 35763,
+    "max": 1015352
+  },
+  "guard_blocks": 12,
+  "guards": {
+    "pr-visual-report": 9,
+    "secret": 3
+  },
+  "review_rounds": 2,
+  "fix_rounds": 1,
+  "tokens": null,
+  "tokens_known": 0,
+  "events": 178,
+  "first_ts": "2026-11-18T20:26:17Z",
+  "last_ts": "2026-11-18T21:37:56Z",
+  "partial": false,
+  "coverage": {
+    "collected": true,
+    "reason": null,
+    "warnings": []
+  }
+}
