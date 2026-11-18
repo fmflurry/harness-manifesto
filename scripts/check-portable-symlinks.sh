@@ -4,6 +4,10 @@
 set -euo pipefail
 repo="${1:-.}"
 found=0
+# Captured to a file, not a process substitution, so a git failure (e.g. not a repo) aborts under set -e.
+listing="$(mktemp)"
+trap 'rm -f "$listing"' EXIT
+git -C "$repo" ls-files -s -z >"$listing"
 while IFS= read -r -d '' entry; do
   read -r mode blob _ <<<"${entry%%$'\t'*}"
   [ "$mode" = 120000 ] || continue
@@ -15,7 +19,7 @@ while IFS= read -r -d '' entry; do
       found=1
       ;;
   esac
-done < <(git -C "$repo" ls-files -s -z)
+done <"$listing"
 if [ "$found" -ne 0 ]; then
   printf 'check-portable-symlinks: make these links relative or stop tracking them (git rm --cached).\n' >&2
   exit 1

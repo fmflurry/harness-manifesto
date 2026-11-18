@@ -67,7 +67,10 @@ if (process.argv[2] === 'setup') {
     fs.symlinkSync(link, dest);
   }
   // Generated per machine: a self-ignoring dir keeps project repos from versioning it.
-  fs.writeFileSync(path.join(dir, '.gitignore'), '*\n');
+  // Removed first and created exclusively so a planted symlink cannot redirect the write.
+  const ignore = path.join(dir, '.gitignore');
+  fs.rmSync(ignore, { force: true });
+  fs.writeFileSync(ignore, '*\n', { flag: 'wx' });
 } else if (process.argv[2] === 'capture') {
   const [, , , repo, target, version, assetRoot = target, customized = '0'] = process.argv;
   const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: repo, encoding: 'utf8' });

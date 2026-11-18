@@ -290,24 +290,66 @@ function installedTarget(t, parent = os.tmpdir()) {
   return { target, script, hooksDir: path.join(target, 'scripts/agent-harness/git-hooks') };
 }
 const hookLinks = (hooksDir) => fs.readdirSync(hooksDir).filter((name) => fs.lstatSync(path.join(hooksDir, name)).isSymbolicLink());
-
-test('setup links every hook relatively to the installed script', (t) => {
-  const { target, script, hooksDir } = installedTarget(t);
-  run(target, 'node', [script, 'setup', target]);
+function assertHookLinks(hooksDir, script) {
   const links = hookLinks(hooksDir);
-  assert.equal(links.length, 28);
+  assert.ok(links.length > 0);
+  for (const name of ['prepare-commit-msg', 'commit-msg', 'pre-push']) assert.ok(links.includes(name), name);
   for (const name of links) {
     const dest = path.join(hooksDir, name);
     assert.equal(fs.readlinkSync(dest), relativeHookLink, name);
     assert.equal(fs.realpathSync(dest), fs.realpathSync(script), name);
   }
+  const ignore = path.join(hooksDir, '.gitignore');
+  assert.ok(fs.lstatSync(ignore).isFile());
+  assert.equal(fs.readFileSync(ignore, 'utf8'), '*\n');
+}
+
+test('setup links every hook relatively to the installed script', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  run(target, 'node', [script, 'setup', target]);
+  assertHookLinks(hooksDir, script);
 });
 
 test('setup is idempotent', (t) => {
   const { target, script, hooksDir } = installedTarget(t);
   run(target, 'node', [script, 'setup', target]);
   run(target, 'node', [script, 'setup', target]);
-  assert.equal(hookLinks(hooksDir).length, 28);
+  assertHookLinks(hooksDir, script);
+});
+
+test('setup replaces a regular hook file left by another install', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  fs.mkdirSync(hooksDir, { recursive: true });
+  const dest = path.join(hooksDir, 'commit-msg');
+  fs.writeFileSync(dest, '/nonexistent/other-machine/commit-provenance.mjs\n');
+  run(target, 'node', [script, 'setup', target]);
+  assert.ok(fs.lstatSync(dest).isSymbolicLink());
+  assert.equal(fs.readlinkSync(dest), relativeHookLink);
+  assert.equal(fs.realpathSync(dest), fs.realpathSync(script));
+});
+
+test('setup refuses to delete a directory in place of a hook', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  const dest = path.join(hooksDir, 'pre-commit');
+  fs.mkdirSync(dest, { recursive: true });
+  fs.writeFileSync(path.join(dest, 'keep'), 'keep\n');
+  const result = spawnSync('node', [script, 'setup', target], { cwd: target, encoding: 'utf8' });
+  assert.notEqual(result.status, 0);
+  assert.ok(fs.lstatSync(dest).isDirectory());
+  assert.equal(fs.readFileSync(path.join(dest, 'keep'), 'utf8'), 'keep\n');
+});
+
+test('setup does not write through a planted .gitignore symlink', (t) => {
+  const { target, script, hooksDir } = installedTarget(t);
+  const victimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-victim-'));
+  t.after(() => fs.rmSync(victimDir, { recursive: true, force: true }));
+  const victim = path.join(victimDir, 'victim');
+  fs.writeFileSync(victim, 'original\n');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  fs.symlinkSync(victim, path.join(hooksDir, '.gitignore'));
+  run(target, 'node', [script, 'setup', target]);
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'original\n');
+  assertHookLinks(hooksDir, script);
 });
 
 test('setup replaces absolute links left by another machine', (t) => {
@@ -356,4 +398,23 @@ test('portable symlink guard rejects tracked absolute symlinks only', (t) => {
   assert.notEqual(dirty.status, 0);
   assert.match(dirty.stderr, /absolute-link -> \/nonexistent\/other-machine\/commit-provenance\.mjs/);
   assert.doesNotMatch(dirty.stderr, /relative-link/);
+});
+
+test('portable symlink guard rejects tracked Windows drive symlinks', (t) => {
+  const guard = path.resolve(path.dirname(source), '../check-portable-symlinks.sh');
+  const repo = setup(t);
+  fs.symlinkSync('C:/x', path.join(repo, 'drive-link'));
+  run(repo, 'git', ['add', 'drive-link']);
+  run(repo, 'git', ['commit', '-qm', 'chore: drive link']);
+  const result = spawnSync('bash', [guard, repo], { encoding: 'utf8' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /drive-link -> C:\/x/);
+});
+
+test('portable symlink guard fails outside a Git repository', (t) => {
+  const guard = path.resolve(path.dirname(source), '../check-portable-symlinks.sh');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-not-repo-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const result = spawnSync('bash', [guard, dir], { encoding: 'utf8', env: { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(fs.realpathSync(dir)) } });
+  assert.notEqual(result.status, 0);
 });
