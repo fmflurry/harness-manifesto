@@ -58,7 +58,16 @@ if [ -n "$re" ] && { autonomy_on || [ "$confirmed" != "--confirmed" ]; }; then
 fi
 
 problems="$(pr_problems "$pr" "$head" "$base")" || refuse "cannot query GitHub for PR #$pr"
+budget_checks="$(sed -n 's/^ci-budget: //p' <<<"$problems")"
+problems="$(grep -v '^ci-budget: ' <<<"$problems" || true)"
 [ -z "$problems" ] || refuse "$(tr '\n' ';' <<<"$problems")"
+# A job GitHub refused to start for budget tested nothing. The owner trusts the local verification instead, and the
+# passing code and security reviews the goal recorded for this exact head are its proof.
+if [ -n "$budget_checks" ]; then
+  local_reviews_pass "$pr" "$head" \
+    || refuse "GitHub Actions did not start $budget_checks (account out of budget), and the goal records no passing code and security review of head ${head:0:8}; verify locally, then record both reviews"
+  echo "ship-merge: CI did not run: GitHub Actions refused $budget_checks (account out of budget). Merging on the local verification and reviews of ${head:0:8}." >&2
+fi
 
 merge_rc=0
 method="$(resolve_merge_method "${method:-$(cfg_get '.mergeMethod // empty')}")" || exit 1
@@ -73,6 +82,12 @@ else
 fi
 state="$(gh_pr_view "$pr" state | jq -r .state)" || state=unknown
 [ "$state" = MERGED ] || refuse "merge failed (exit $merge_rc); PR state is $state"
+if [ -n "$budget_checks" ]; then
+  notice="⚠️ **Merged without CI.** GitHub Actions did not start $budget_checks on ${head:0:8}: the account is out of Actions budget (a failed payment or the spending limit). The merge relied on the local verification and the passing code and security reviews recorded for this head. Fix billing in Settings › Billing and plans, then re-run CI on $base to confirm."
+  gh_cmd pr comment "$pr" --body "$notice" >/dev/null 2>&1 || echo "ship-merge: could not post the CI budget notice on PR #$pr" >&2
+  goal_update --arg c "$budget_checks" '.ci_budget = $c' || true
+  kpi_emit ship ci_budget=skipped "pr=$pr"
+fi
 
 bash -p "$HARNESS_DIR/ado-state.sh" merged "$branch" "$(jq -r '.body // ""' <<<"$view")" || true
 goal_bind_registered_pr "$pr" || true

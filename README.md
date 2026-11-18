@@ -999,7 +999,7 @@ set a safety ceiling of `max_fix_iterations` 10. Empty stdin exits 2. The same b
   sessions, and re-prompts with the reason (`instructions/autonomy.md`). Conductor and Monolith use this hook.
 
 **When it escalates.** `skills/ship/SKILL.md` (Human-only) stops for missing credentials, account limits or
-billing, an external outage, a product decision the repo cannot answer, or an action on the forbidden list.
+billing (except GitHub Actions refusing jobs for budget, which the merge gate accepts on local reviews), an external outage, a product decision the repo cannot answer, or an action on the forbidden list.
 It also stops on the skill's no-progress rule, on `goal bump` exit 3, and on the stop-gate caps above. A
 gitleaks finding or a secret exposure stops the run for `security-reviewer` and rotation. An open-PR outcome
 of `Wait or cancel` escalates (`skills/open-pr-check/SKILL.md`). The blocked path keeps the worktree,
@@ -1071,7 +1071,10 @@ not opinions. A refusal is input to the loop: the agent fixes the cause and retr
 
 - the autonomy flag is on, or `--confirmed` is passed
 - the PR targets the base branch and is not a draft
-- every `requiredChecks` entry passed on the head
+- every `requiredChecks` entry passed on the head, and no other check run failed or is pending. A check GitHub
+  Actions refused to start because the account is out of budget (failed payment or spending limit) tested nothing:
+  it counts only when the goal records passing code and security reviews of that exact head. The merge then goes
+  ahead with a warning and a "Merged without CI" comment on the PR.
 - zero unresolved review threads
 - the branch is up to date with the base branch
 - no changed path matches `protectedPaths`, unless `--confirmed` is passed (a human merges such a PR)

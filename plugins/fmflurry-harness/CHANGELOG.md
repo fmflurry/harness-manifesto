@@ -2,6 +2,10 @@
 
 Versions of the fmflurry-harness Cursor plugin. The number lives in `scripts/cursor-plugin/config.json` and is copied into `.cursor-plugin/plugin.json` by `node scripts/build-cursor-plugin.mjs`.
 
+## [0.5.0] - 2026-11-18
+
+- `ship-merge` no longer stops at a check GitHub Actions refused to start because the account is out of budget (its annotation says the payments failed or the spending limit was reached). That job tested nothing, so the merge accepts it once the goal records a passing code review and a passing security review of the exact head. It then warns, merges, posts a "Merged without CI" comment on the PR, and sets `ci_budget` on the goal. Any other failing or pending check still blocks. The ship skill no longer escalates on that refusal, and the outcome report must say CI did not run.
+
 ## [0.4.48] - 2026-11-14
 
 - The user-level KPI hook was returning before it wrote whenever the checkout contained `kpi-emit.sh`. This repo's Claude settings call `~/.claude/hooks/kpi-emit.sh`, so every count in `kpi feature` was N/A. The user-level hook now writes unless settings also run a different project script. A repeated tool use with the same id, and a repeated session boundary in the same second, are written once. OpenCode 2 session location and the skill tool's `id` are recorded. Reinstall so the installed hook updates. Events that were never written are not backfilled.

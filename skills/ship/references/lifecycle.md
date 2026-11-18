@@ -198,7 +198,8 @@ The report commit (stage 11) is exempt: it changes only `docs/agent-reports/`, w
 - Flaky check: re-run the failed job once with `gh run rerun <run-id> --failed`. A second failure is real.
 - Blocker classification (which CI failures the agent fixes, and which are human-only) is in the SKILL.md "Blockers"
   section. A CI failure caused by repo code or repo config, including workflow files, is fixed by the agent. A missing
-  secret, a billing or quota limit, or an outage is escalated.
+  secret, a billing or quota limit, or an outage is escalated. A job GitHub Actions refused to start for budget is
+  not escalated: go on to the merge, which accepts it on the local reviews of the head (stage 12).
 
 ## 10. Comments
 
@@ -260,7 +261,10 @@ agent-harness ship-merge <n> --confirmed  # interactive mode, after the user say
 
 - the autonomy flag is on, or `--confirmed` is passed
 - the PR targets `<base>` and is not a draft
-- every `requiredChecks` entry passed on the head
+- every `requiredChecks` entry passed on the head, and no other check run failed or is pending. A check
+  GitHub Actions refused to start because the account is out of budget counts only when the goal records a passing
+  code review and a passing security review of that exact head. Then `ship-merge` warns, merges, posts a "Merged
+  without CI" notice on the PR, and sets `ci_budget` on the goal. The outcome report says so too.
 - zero unresolved review threads, and fewer than 100 threads
 - the branch is up to date with `<base>` (`behind_by` is 0)
 - no changed path matches `protectedPaths`, unless `--confirmed` is passed (a human merges such a PR)

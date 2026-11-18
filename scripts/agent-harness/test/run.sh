@@ -86,6 +86,7 @@ case "$*" in
     if [ -n "$expr" ]; then echo "$body" | jq -r "$expr"; else echo "$body"; fi ;;
   "repo view"*) echo "o/r" ;;
   "api repos/o/r --jq"*) cat "$FX/merge_settings.txt" 2>/dev/null || echo "true true true" ;;
+  *check-runs/*/annotations*) cat "$FX/annotations.txt" 2>/dev/null ;;
   *check-runs*) jq -c '.[]' "$FX/checks.json" ;;
   *statuses*) jq -c '.[]' "$FX/statuses.json" ;;
   *compare*) cat "$FX/behind.txt" ;;
@@ -109,7 +110,7 @@ export FX GH_BIN="$TMP/gh" ORCA_BIN="$TMP/orca" AGENT_STATE_DIR="$TMP/state" CLA
 unset ORCA_WORKTREE_ID GITHUB_ACTIONS TLTB_STATE_DIR
 # lib.sh falls back to $PWD when CLAUDE_PROJECT_DIR is not a repo; never let that be the caller's checkout.
 cd "$TMP" || exit 1
-reset() { rm -rf "$TMP/state/goals"; rm -f "$FX"/*.log "$FX"/merge.* "$FX"/merge_settings.txt "$FX"/open_prs.json "$FX"/branch.json "$FX"/branch.gone "$FX"/branch.err "$FX"/list.fail "$FX"/default_branch "$FX"/graphql.off "$FX"/graphql.502 "$FX"/rest.fail "$FX"/pull.patch "$FX"/pull2.patch "$FX"/pull.reads "$FX"/graphql.transport "$FX"/graphql.getrest "$FX"/pulls.malformed "$FX"/pulls.fail "$FX"/files.3000 "$FX"/files.2999 "$FX"/comments.json "$TMP/state"/* "$CFG"; }
+reset() { rm -rf "$TMP/state/goals"; rm -f "$FX"/*.log "$FX"/annotations.txt "$FX"/merge.* "$FX"/merge_settings.txt "$FX"/open_prs.json "$FX"/branch.json "$FX"/branch.gone "$FX"/branch.err "$FX"/list.fail "$FX"/default_branch "$FX"/graphql.off "$FX"/graphql.502 "$FX"/rest.fail "$FX"/pull.patch "$FX"/pull2.patch "$FX"/pull.reads "$FX"/graphql.transport "$FX"/graphql.getrest "$FX"/pulls.malformed "$FX"/pulls.fail "$FX"/files.3000 "$FX"/files.2999 "$FX"/comments.json "$TMP/state"/* "$CFG"; }
 flag_on() { : >"$TMP/state/autonomy.on"; }
 cfg_ci() { echo '{"base":"master","requiredChecks":["gate","export"],"reviewStatus":"tltb-review","reviewStatusCreator":"github-actions[bot]"}' >"$CFG"; }
 
@@ -486,6 +487,35 @@ fresh; rm -f "$TMP/state/autonomy.on"; merge 5 --confirmed; rc=$?
 check "ship-merge --confirmed works with flag off" test $rc -eq 0
 fresh; echo 1 >"$FX/merge.rc"; merge 5; rc=$?
 check "ship-merge succeeds when merge exits non-zero but PR is MERGED" test $rc -eq 0
+
+# ---- ship-merge: GitHub Actions out of budget (the job never started)
+budget_gate() {
+  mutate '(.[] | select(.name=="gate")) |= (.id=11 | .conclusion="failure" | .output={annotations_count:2})' checks.json
+  printf '%s\n' "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings" \
+    'The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026.' >"$FX/annotations.txt"
+}
+review_head() { ( cd "$TMP/work" && bash "$H/goal.sh" review code "$1" && bash "$H/goal.sh" review security "$2" ) >/dev/null 2>&1; }
+budget_goal() { bash "$H/goal.sh" set g >/dev/null; bash "$H/goal.sh" pr 5 >/dev/null; }
+
+fresh; budget_goal; budget_gate; review_head pass pass; merge 5; rc=$?
+check "ci budget: merges on passing local reviews of the head" test $rc -eq 0
+check "ci budget: merged pinned to the head" grep -qx "pr merge 5 --squash --match-head-commit $HEAD_SHA" "$FX/gh.log"
+check "ci budget: warns that CI did not run" grep -q 'CI did not run: GitHub Actions refused gate (account out of budget)' "$FX/out"
+check "ci budget: posts the notice on the PR" grep -q '^pr comment 5 --body .*Merged without CI.*gate' "$FX/gh.log"
+check "ci budget: records it on the goal" test "$(jq -r .ci_budget "$TMP/state/goal.json")" = gate
+fresh; budget_goal; budget_gate; refuses "ci budget without any local review" 5
+check "ci budget: refusal says what is missing" grep -q 'no passing code and security review of head' "$FX/out"
+fresh; budget_goal; budget_gate; review_head pass fail; refuses "ci budget with a failing security review" 5
+fresh; budget_goal; budget_gate; review_head pass pass
+mutate ".headRefOid=\"$(git -C "$TMP/work" rev-parse origin/master)\"" view.json; refuses "ci budget with reviews of another head" 5
+fresh; budget_goal; budget_gate; review_head pass pass
+: >"$FX/annotations.txt"; refuses "ci failure that is not about budget" 5
+fresh; budget_goal; budget_gate; review_head pass pass
+mutate '. + [{"id":12,"name":"export","status":"completed","conclusion":"failure","output":{"annotations_count":0}}]' checks.json
+refuses "a real failure beside a budget refusal" 5
+check "ci budget: the real failure is named" grep -q 'checks failing or pending: export' "$FX/out"
+fresh; budget_goal; review_head pass pass; merge 5
+check "green CI: no budget notice" bash -c '! grep -q "pr comment" "$1"' _ "$FX/gh.log"
 
 # ---- ship-merge: merge method
 fresh; bash "$H/goal.sh" set g; bash "$H/goal.sh" pr 5
