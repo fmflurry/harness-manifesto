@@ -33,6 +33,7 @@ Three hosts, one install tree:
 | OpenCode | `~/.config/opencode/`. Hub file: `opencode.jsonc`. Entry: `install.sh` or `bootstrap.sh`. |
 | Claude Code | Optional `~/.claude/` mirror: settings, hooks, rules, agents, synced skills. Same variant as OpenCode when you install both. |
 | Cursor | Plugin `fmflurry-harness` via `install-cursor.sh`. Version **0.4.36** in `scripts/cursor-plugin/config.json`. Agents are marked `readonly` or not. This host has no per-agent write allowlist. |
+| Mistral Vibe | `~/.vibe/` via `install-vibe.sh`, built from the Cursor plugin by `scripts/build-vibe.mjs`: `AGENTS.md` (rules), `agents/*.toml` + `prompts/*.md`, `skills/` (commands without a same-name skill become skills), MCP servers merged into `config.toml`. Vibe has no tool hooks, so hook-enforced rules are prose only. `--migrate-legacy` removes the old hand port. |
 
 **Monolith** is `variants/monolith/`. These install it when you omit the variant: `./install.sh --yes`, `./install.sh --local`, `bootstrap.ps1`, `settings-sync`, and `./install-cursor.sh`. `install.sh` copies the Conductor tree, then `scripts/variants/apply-monolith.mjs` overlays the lean roster onto that copy. The source checkout stays as it is.
 
@@ -70,6 +71,7 @@ Switching variants removes the other variant's agents, commands, and rules. Retu
 ./install.sh --variant orchestration # alias of Conductor
 ./install-cursor.sh                  # Cursor plugin, default Monolith
 ./install-cursor.sh --variant conductor
+./install-vibe.sh                    # Mistral Vibe (~/.vibe), default Monolith
 ```
 
 Windows: `bootstrap.ps1` with no variant is Monolith. `bootstrap.ps1 conductor` selects Conductor. `orchestration` is the same alias.
