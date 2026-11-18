@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vibe harness installer</title>
+<style>
+  body { margin: 0; background: #FAF6EE; color: #2b2622; font-family: Georgia, "Times New Roman", serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  .sub { color: #6b6158; margin-bottom: 24px; }
+  .flow { display: grid; grid-template-columns: 1fr 40px 1fr 40px 1fr; align-items: stretch; gap: 0; }
+  .card { background: #fff; border-radius: 14px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card h2 { font-size: 17px; margin: 0 0 8px; }
+  .card ul { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.5; }
+  .arrow { display: flex; align-items: center; justify-content: center; font-size: 26px; color: #a08f7d; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; background: #f1ebe0; padding: 1px 4px; border-radius: 4px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 20px; }
+  .ok { color: #2f6b3a; } .warn { color: #8a5a12; }
+  @media (max-width: 820px) {
+    .flow { grid-template-columns: 1fr; }
+    .arrow { transform: rotate(90deg); height: 36px; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mistral Vibe joins the harness</h1>
+  <div class="sub">Before: a hand port in <code>~/.vibe</code> from 31 May, never updated. After: <code>install-vibe.sh</code> rebuilds it from the same source as Cursor.</div>
+
+  <div class="flow">
+    <div class="card">
+      <h2>Repo sources</h2>
+      <ul>
+        <li><code>.claude/agents</code>, <code>opencode.jsonc</code></li>
+        <li><code>skills/</code>, <code>commands/</code></li>
+        <li><code>.claude/rules</code></li>
+        <li><code>variants/monolith</code></li>
+      </ul>
+    </div>
+    <div class="arrow">&rarr;</div>
+    <div class="card">
+      <h2>build-cursor-plugin.mjs</h2>
+      <ul>
+        <li>variant (Monolith default)</li>
+        <li>9 agents, 83 skills, 66 commands, 18 rules</li>
+        <li>path sanitizing, <code>mcp.json</code></li>
+      </ul>
+    </div>
+    <div class="arrow">&rarr;</div>
+    <div class="card">
+      <h2>build-vibe.mjs &rarr; ~/.vibe</h2>
+      <ul>
+        <li><code>agents/*.toml</code> + <code>prompts/*.md</code> (cli.md + role)</li>
+        <li><code>skills/</code>: 83 + 36 commands = 119</li>
+        <li><code>AGENTS.md</code>: all rules, grok tiers stripped</li>
+        <li><code>config.toml</code> <code>mcp_servers</code> merged</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Installer safety</h2>
+      <ul>
+        <li>backup to <code>_pre_install_backups/</code></li>
+        <li>manifest-driven prune, names regex-checked</li>
+        <li>refuses symlinked <code>agents/prompts/skills</code></li>
+        <li>atomic <code>config.toml</code> write, mode kept</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Tests</h2>
+      <ul>
+        <li class="ok">vibe-build.test.mjs: 7/7 pass</li>
+        <li class="ok">installer run twice on a temp VIBE_HOME</li>
+        <li class="ok">npm test: same 40 failures as master, none new</li>
+        <li class="ok">vibe -p smoke test: 9 subagents load</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Risks</h2>
+      <ul>
+        <li class="warn">Vibe has no tool hooks: guards are prose only</li>
+        <li class="warn">tomli_w drops comments in config.toml</li>
+        <li class="warn">readonly agents keep bash</li>
+        <li class="warn">--migrate-legacy removes every real skill dir (backup required)</li>
+      </ul>
+    </div>
+  </div>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/settings-opencode  feat/vibe-harness  pr n/a. Status: partial. Coverage: empty selection.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">N/A</td></tr></table>
+<p style="margin:10px 0 0">Tools: N/A</p>
+<p style="margin:4px 0 0">Skills: N/A</p>
+<p style="margin:4px 0 0">Agents: N/A</p>
+<p style="margin:4px 0 0">Failure tools: N/A. Durations: n/a.</p>
+</section>
+</main>
+</body>
+</html>
