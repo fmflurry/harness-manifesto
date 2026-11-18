@@ -1,0 +1,72 @@
+{
+  "feature": {
+    "repo": "fmflurry/settings-opencode",
+    "branch": "feat/harness-ci-budget-trusts-local-checks",
+    "pr": null
+  },
+  "prs": [],
+  "wall_ms": 3373000,
+  "active_ms": 1130000,
+  "idle_gap_min": 5,
+  "sessions": {
+    "cursor": 1,
+    "claude": 0,
+    "opencode": 3
+  },
+  "tools": [
+    {
+      "name": "shell",
+      "count": 55
+    },
+    {
+      "name": "edit",
+      "count": 36
+    },
+    {
+      "name": "Bash",
+      "count": 4
+    },
+    {
+      "name": "read",
+      "count": 3
+    },
+    {
+      "name": "grep",
+      "count": 1
+    }
+  ],
+  "skills": [],
+  "agents": [
+    {
+      "name": "main",
+      "calls": 95
+    },
+    {
+      "name": "generalPurpose",
+      "calls": 4
+    }
+  ],
+  "tool_failures": 0,
+  "failure_tools": [],
+  "duration_ms": {
+    "n": 94,
+    "sum": 2864401,
+    "mean": 30472,
+    "max": 571574
+  },
+  "guard_blocks": 0,
+  "guards": {},
+  "review_rounds": 0,
+  "fix_rounds": 0,
+  "tokens": null,
+  "tokens_known": 0,
+  "events": 197,
+  "first_ts": "2026-11-18T15:35:44Z",
+  "last_ts": "2026-11-18T16:31:57Z",
+  "partial": false,
+  "coverage": {
+    "collected": true,
+    "reason": null,
+    "warnings": []
+  }
+}

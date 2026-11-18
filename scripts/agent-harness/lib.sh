@@ -389,21 +389,72 @@ protected_regex() {
   cfg_get '(.protectedPaths // []) | join("|")'
 }
 
+# GitHub's own failure annotation on a job it refused to start because the account is out of Actions budget.
+CI_BUDGET_RE='^The job was not started because (recent account payments have failed|your spending limit needs to be increased)'
+
+# ci_budget_run_ids <repo> <check-runs-json>: ids of the failed runs GitHub Actions never started for budget,
+# one per line. Such a run tested nothing, so it is neither a pass nor a failure of the change. All of these must
+# hold: the run is GitHub Actions' own, its job got no runner and ran no step, and every failure annotation on it is
+# GitHub's budget message. A job that ran can print the same words, but it has a runner, steps, and its own failure.
+ci_budget_run_ids() {
+  local repo="$1" id idle annotations
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    idle="$(gh_cmd api "repos/$repo/actions/jobs/$id" --jq '((.steps // []) | length) == 0 and (.runner_name // "") == ""' 2>/dev/null)" || continue
+    [ "$idle" = true ] || continue
+    annotations="$(gh_cmd api "repos/$repo/check-runs/$id/annotations" --paginate --jq '.[]' 2>/dev/null | jq -s .)" || continue
+    if jq -e --arg re "$CI_BUDGET_RE" '[.[] | select(.annotation_level == "failure") | .message]
+      | length > 0 and all(test($re; "i"))' <<<"$annotations" >/dev/null 2>&1; then
+      printf '%s\n' "$id"
+    fi
+  done <<<"$(jq -r '.[] | select(.status == "completed" and .conclusion == "failure" and .app.slug == "github-actions"
+    and ((.output.annotations_count // 0) > 0)) | .id' <<<"$2")"
+}
+
+# local_reviews_pass <pr> <head-sha>: the PR's goal records a passing code review and a passing security review of
+# exactly that head. Binds GOAL_FILE to the PR's registered worktree when there is one.
+local_reviews_pass() {
+  goal_bind_registered_pr "$1" || [ "$(goal_get '.pr // empty')" = "$1" ] || return 1
+  jq -e --arg h "$2" 'any(.reviews[]?; .code.verdict == "pass" and .code.sha == $h
+    and .security.verdict == "pass" and .security.sha == $h)' "$GOAL_FILE" >/dev/null 2>&1
+}
+
 # pr_problems <pr> <head-sha> <base>: one line per unmet rail; empty output means all green.
-# Returns 2 when GitHub cannot be queried.
+# A "ci-budget: <checks>" line names checks GitHub Actions refused to start for budget; ship-merge accepts them
+# only on passing local reviews of the head. Returns 2 when GitHub cannot be queried.
 pr_problems() {
-  local pr="$1" head="$2" base="$3" repo runs statuses threads bad review behind name rs who
+  local pr="$1" head="$2" base="$3" repo runs statuses threads bad review behind name rs who budget
   repo="$(gh_repo_name)" || return 2
 
   runs="$(gh_cmd api "repos/$repo/commits/$head/check-runs" --paginate --jq '.check_runs[]' | jq -s .)" || return 2
-  bad="$(jq -r '[.[] | select(.status != "completed" or (.conclusion | IN("success", "skipped", "neutral") | not)) | .name]
+  budget="$(ci_budget_run_ids "$repo" "$runs" | jq -R 'tonumber? // empty' | jq -sc .)"
+  jq -e 'type == "array"' <<<"$budget" >/dev/null 2>&1 || return 2
+  if [ "$budget" != "[]" ]; then
+    # The list above holds only each check's latest run. A refused rerun must not hide a real failure before it;
+    # a cancelled or stale earlier run says nothing about the code, so only a failure or a timeout counts.
+    local all all_budget masked
+    all="$(gh_cmd api "repos/$repo/commits/$head/check-runs?filter=all" --paginate --jq '.check_runs[]' | jq -s .)" || return 2
+    all_budget="$(ci_budget_run_ids "$repo" "$all" | jq -R 'tonumber? // empty' | jq -sc .)"
+    masked="$(jq -r --argjson skip "$budget" --argjson refused "$all_budget" --argjson latest "$runs" '
+      ([$latest[] | select(.id | IN($skip[])) | .name]) as $names
+      | [.[] | select((.name | IN($names[])) and ((.id | IN($refused[])) | not) and .status == "completed"
+          and (.conclusion | IN("failure", "timed_out"))) | .name | gsub("[\\r\\n]"; " ")]
+      | unique | join(", ")' <<<"$all")"
+    [ -z "$masked" ] || echo "checks failing or pending: $masked (failed on this head before Actions ran out of budget)"
+  fi
+  bad="$(jq -r --argjson skip "$budget" '[.[] | select((.id | IN($skip[])) | not)
+    | select(.status != "completed" or (.conclusion | IN("success", "skipped", "neutral") | not)) | .name | gsub("[\\r\\n]"; " ")]
     | unique | join(", ")' <<<"$runs")"
   [ -z "$bad" ] || echo "checks failing or pending: $bad"
   while IFS= read -r name; do
     [ -n "$name" ] || continue
-    jq -e --arg n "$name" 'any(.[]; .name == $n and .status == "completed" and (.conclusion | IN("success", "skipped", "neutral")))' \
+    jq -e --arg n "$name" --argjson skip "$budget" 'any(.[]; .name == $n and ((.id | IN($skip[]))
+      or (.status == "completed" and (.conclusion | IN("success", "skipped", "neutral")))))' \
       <<<"$runs" >/dev/null || echo "required check '$name' missing or not passing"
   done <<<"$(cfg_get '(.requiredChecks // [])[]')"
+  name="$(jq -r --argjson skip "$budget" '[.[] | select(.id | IN($skip[])) | .name | gsub("[\\r\\n`]"; " ")]
+    | unique | join(", ")' <<<"$runs")"
+  [ -z "$name" ] || echo "ci-budget: $name"
 
   rs="$(cfg_get '.reviewStatus // empty')"
   if [ -n "$rs" ]; then

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ship-merge trusts local reviews when Actions is out of budget</title>
+<style>
+  :root { --bg:#FAF6EE; --card:#fffdf8; --ink:#2b2620; --muted:#6f665b; --line:#e7dfd0; --bad:#b4442f; --good:#2f7a4f; --warn:#a86a12; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:32px; background:var(--bg); color:var(--ink); font-family: Georgia, 'Iowan Old Style', serif; line-height:1.45; }
+  h1 { margin:0 0 4px; font-size:1.55rem; }
+  .sub { color:var(--muted); margin:0 0 22px; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 20px; }
+  .card h2 { margin:0 0 10px; font-size:1.05rem; }
+  .full { grid-column: 1 / -1; }
+  .flow { display:flex; gap:8px; align-items:stretch; flex-wrap:wrap; }
+  .box { flex:1; min-width:150px; background:#f3ede2; border-radius:10px; padding:10px 12px; font-size:.88rem; }
+  .box b { display:block; margin-bottom:3px; }
+  .arrow { align-self:center; color:var(--muted); }
+  .ok { background:#dcefe3; } .no { background:#f6ded8; } .warn { background:#f7ead2; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size:.84em; background:#f1eadc; padding:1px 5px; border-radius:4px; }
+  ul { margin:4px 0 0; padding-left:20px; }
+  table { border-collapse:collapse; width:100%; font-size:.88rem; }
+  td, th { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); }
+  @media (max-width: 760px) { body { padding:16px; } .grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+  <h1>ship-merge trusts local reviews when GitHub Actions is out of budget</h1>
+  <p class="sub">feat(harness) · <code>lib.sh</code> <code>pr_problems</code> · <code>ship-merge.sh</code> · plugin 0.5.0</p>
+  <div class="grid">
+    <section class="card full">
+      <h2>Decision path for a failed check</h2>
+      <div class="flow">
+        <div class="box"><b>Failed check run</b>on the PR head</div><span class="arrow">→</span>
+        <div class="box"><b>Never started?</b>app <code>github-actions</code>, job with no runner and no step, every failure annotation is GitHub's budget sentence</div><span class="arrow">→</span>
+        <div class="box"><b>No real failure hidden?</b>all runs of that check on the head: none ended <code>failure</code> or <code>timed_out</code></div><span class="arrow">→</span>
+        <div class="box"><b>Local proof?</b>goal records passing code and security reviews of the exact head</div><span class="arrow">→</span>
+        <div class="box warn"><b>Merge, loudly</b>stderr warning, "Merged without CI" PR comment, <code>ci_budget</code> on the goal, KPI event</div>
+      </div>
+      <p class="sub" style="margin:10px 0 0">Any "no" keeps the old behaviour: the check counts as failing and ship-merge refuses.</p>
+    </section>
+    <section class="card">
+      <h2>Before</h2>
+      <div class="box no">Out of budget → every job fails at once → ship-merge refuses → goal escalates → owner merges by hand, PR after PR.</div>
+    </section>
+    <section class="card">
+      <h2>After</h2>
+      <div class="box ok">Out of budget → refused jobs prove nothing → the locally verified, reviewed head merges → the PR says CI did not run.</div>
+    </section>
+    <section class="card">
+      <h2>Kept closed</h2>
+      <ul>
+        <li>a job that ran and printed the billing words (it has a runner and steps)</li>
+        <li>a test failure quoting the sentence (anchored match)</li>
+        <li>a real failure annotation beside the budget one</li>
+        <li>another app's check, or an API-made check with no job</li>
+        <li>a refused rerun over an earlier real failure</li>
+        <li>reviews of another head, or a failing review</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h2>Checks</h2>
+      <table>
+        <tr><td>Harness suite</td><td>2813 passed, 0 failed (+33)</td></tr>
+        <tr><td>Guard suite, /bin/bash</td><td>1044 passed</td></tr>
+        <tr><td>kpi-worktree, hooks, guard profile, differential</td><td>green</td></tr>
+        <tr><td>Cursor plugin check</td><td>OK, 0.5.0</td></tr>
+        <tr><td>shellcheck</td><td>no new warnings</td></tr>
+        <tr><td>Review</td><td>code and security, 3 rounds, pass</td></tr>
+      </table>
+    </section>
+  </div>
+
+<section id="kpi-metrics" style="margin-top:28px">
+<h2 style="font-size:18px;margin:0 0 8px">Metrics</h2>
+<p style="margin:0 0 10px;color:#57534e">fmflurry/settings-opencode  feat/harness-ci-budget-trusts-local-checks  pr n/a. Status: complete.</p>
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #d6d3d1"><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Wall</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">56m13s</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Active</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">18m50s (gaps over 5m excluded)</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Sessions</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">cursor 1, claude 0, opencode 3</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tokens</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">n/a</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Tool failures</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Guard blocks</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Review rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #d6d3d1">Fix rounds</th><td style="padding:6px 10px;border-bottom:1px solid #d6d3d1">0</td></tr></table>
+<p style="margin:10px 0 0">Tools: shell 55, edit 36, Bash 4, read 3, grep 1</p>
+<p style="margin:4px 0 0">Skills: none</p>
+<p style="margin:4px 0 0">Agents: main 95, generalPurpose 4</p>
+<p style="margin:4px 0 0">Failure tools: none. Durations: mean 30s, max 9m32s, n 94.</p>
+</section>
+</body>
+</html>

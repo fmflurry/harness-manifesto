@@ -188,7 +188,13 @@ The agent cannot resolve these. Run `agent-harness goal escalate "<reason>"`, th
 blocked path in [Stop conditions](#stop-conditions), and stop.
 
 - Missing credentials or secrets.
-- Account limits or billing (for example an artifact or minutes quota).
+- Account limits or billing (for example an artifact quota). One exception: GitHub Actions refusing to start a job
+  because the account is out of budget (its annotation says the payments failed or the spending limit was reached) is
+  not a blocker. That job tested nothing, so the local verification stands in for it. `ship-merge` accepts it once
+  the goal records passing code and security reviews of the exact head, merges, and posts a "Merged without CI"
+  notice on the PR. State it in the outcome report and its PR comment: CI did not run, the account is out of Actions
+  budget, and the merge relied on local checks. A configured `reviewStatus` is still required, so a review workflow
+  that cannot run blocks the merge; escalate then.
 - An external outage (the host, a registry, or a third-party service is down).
 - A product decision that the repo cannot answer.
 - An action on the forbidden list (see Hard limits).

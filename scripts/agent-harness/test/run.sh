@@ -86,6 +86,9 @@ case "$*" in
     if [ -n "$expr" ]; then echo "$body" | jq -r "$expr"; else echo "$body"; fi ;;
   "repo view"*) echo "o/r" ;;
   "api repos/o/r --jq"*) cat "$FX/merge_settings.txt" 2>/dev/null || echo "true true true" ;;
+  *check-runs/*/annotations*) [ -e "$FX/annotations.json" ] && jq -c "$(jq_arg "$@")" "$FX/annotations.json" ;;
+  *actions/jobs/*) [ -e "$FX/job.json" ] && jq -r "$(jq_arg "$@")" "$FX/job.json" ;;
+  *check-runs?filter=all*) jq -c '.[]' "$( [ -e "$FX/checks_all.json" ] && echo "$FX/checks_all.json" || echo "$FX/checks.json")" ;;
   *check-runs*) jq -c '.[]' "$FX/checks.json" ;;
   *statuses*) jq -c '.[]' "$FX/statuses.json" ;;
   *compare*) cat "$FX/behind.txt" ;;
@@ -109,7 +112,7 @@ export FX GH_BIN="$TMP/gh" ORCA_BIN="$TMP/orca" AGENT_STATE_DIR="$TMP/state" CLA
 unset ORCA_WORKTREE_ID GITHUB_ACTIONS TLTB_STATE_DIR
 # lib.sh falls back to $PWD when CLAUDE_PROJECT_DIR is not a repo; never let that be the caller's checkout.
 cd "$TMP" || exit 1
-reset() { rm -rf "$TMP/state/goals"; rm -f "$FX"/*.log "$FX"/merge.* "$FX"/merge_settings.txt "$FX"/open_prs.json "$FX"/branch.json "$FX"/branch.gone "$FX"/branch.err "$FX"/list.fail "$FX"/default_branch "$FX"/graphql.off "$FX"/graphql.502 "$FX"/rest.fail "$FX"/pull.patch "$FX"/pull2.patch "$FX"/pull.reads "$FX"/graphql.transport "$FX"/graphql.getrest "$FX"/pulls.malformed "$FX"/pulls.fail "$FX"/files.3000 "$FX"/files.2999 "$FX"/comments.json "$TMP/state"/* "$CFG"; }
+reset() { rm -rf "$TMP/state/goals"; rm -f "$FX"/*.log "$FX"/annotations.json "$FX"/job.json "$FX"/checks_all.json "$FX"/merge.* "$FX"/merge_settings.txt "$FX"/open_prs.json "$FX"/branch.json "$FX"/branch.gone "$FX"/branch.err "$FX"/list.fail "$FX"/default_branch "$FX"/graphql.off "$FX"/graphql.502 "$FX"/rest.fail "$FX"/pull.patch "$FX"/pull2.patch "$FX"/pull.reads "$FX"/graphql.transport "$FX"/graphql.getrest "$FX"/pulls.malformed "$FX"/pulls.fail "$FX"/files.3000 "$FX"/files.2999 "$FX"/comments.json "$TMP/state"/* "$CFG"; }
 flag_on() { : >"$TMP/state/autonomy.on"; }
 cfg_ci() { echo '{"base":"master","requiredChecks":["gate","export"],"reviewStatus":"tltb-review","reviewStatusCreator":"github-actions[bot]"}' >"$CFG"; }
 
@@ -486,6 +489,62 @@ fresh; rm -f "$TMP/state/autonomy.on"; merge 5 --confirmed; rc=$?
 check "ship-merge --confirmed works with flag off" test $rc -eq 0
 fresh; echo 1 >"$FX/merge.rc"; merge 5; rc=$?
 check "ship-merge succeeds when merge exits non-zero but PR is MERGED" test $rc -eq 0
+
+# ---- ship-merge: GitHub Actions out of budget (the job never started)
+BUDGET_MSG="The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
+# The shape GitHub gives a job it refused to start: no runner, no step, its budget message as the one failure.
+budget_gate() {
+  mutate '(.[] | select(.name=="gate")) |= (.id=11 | .conclusion="failure" | .output={annotations_count:2})' checks.json
+  jq -n --arg m "$BUDGET_MSG" '[{annotation_level:"failure",message:$m},{annotation_level:"notice",message:"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026."}]' >"$FX/annotations.json"
+  echo '{"status":"completed","conclusion":"failure","steps":[],"runner_name":""}' >"$FX/job.json"
+}
+review_head() { ( cd "$TMP/work" && bash "$H/goal.sh" review code "$1" && bash "$H/goal.sh" review security "$2" ) >/dev/null 2>&1; }
+budget_goal() { bash "$H/goal.sh" set g >/dev/null; bash "$H/goal.sh" pr 5 >/dev/null; }
+refused_for_reviews() { check "ci budget: $1 refused for the reviews" grep -q 'no passing code and security review of head' "$FX/out"; }
+
+fresh; budget_goal; budget_gate; review_head pass pass; merge 5; rc=$?
+check "ci budget: merges on passing local reviews of the head" test $rc -eq 0
+check "ci budget: merged pinned to the head" grep -qx "pr merge 5 --squash --match-head-commit $HEAD_SHA" "$FX/gh.log"
+check "ci budget: warns that CI did not run" grep -q 'CI did not run: GitHub Actions refused gate (account out of budget)' "$FX/out"
+check "ci budget: posts the notice on the PR" grep -q '^pr comment 5 --body .*Merged without CI.*`gate`' "$FX/gh.log"
+check "ci budget: records it on the goal" test "$(jq -r .ci_budget "$TMP/state/goal.json")" = gate
+fresh; budget_goal; budget_gate; refuses "ci budget without any local review" 5; refused_for_reviews "no review"
+fresh; budget_goal; budget_gate; review_head pass fail; refuses "ci budget with a failing security review" 5
+refused_for_reviews "a failing security review"
+fresh; budget_goal; budget_gate; review_head pass pass
+mutate ".headRefOid=\"$(git -C "$TMP/work" rev-parse origin/master)\"" view.json; refuses "ci budget with reviews of another head" 5
+refused_for_reviews "reviews of another head"
+fresh; budget_goal; budget_gate; review_head pass pass
+echo '[]' >"$FX/annotations.json"; refuses "ci failure that is not about budget" 5
+fresh; budget_goal; budget_gate; review_head pass pass
+mutate '. + [{annotation_level:"failure",message:"Process completed with exit code 1."}]' annotations.json
+refuses "a real failure annotation beside the budget one" 5
+fresh; budget_goal; budget_gate; review_head pass pass
+jq -n --arg m "Expected: $BUDGET_MSG" '[{annotation_level:"failure",message:$m}]' >"$FX/annotations.json"
+refuses "a test failure quoting the budget words" 5
+fresh; budget_goal; budget_gate; review_head pass pass
+echo '{"steps":[{"name":"Set up job"}],"runner_name":"GitHub Actions 1000002586"}' >"$FX/job.json"
+refuses "a job that ran and printed the budget words" 5
+fresh; budget_goal; budget_gate; review_head pass pass
+mutate '(.[] | select(.name=="gate") | .app.slug) = "some-app"' checks.json; refuses "a budget text from another app" 5
+fresh; budget_goal; budget_gate; review_head pass pass
+jq '. + [{"id":10,"name":"gate","status":"completed","conclusion":"failure","app":{"slug":"github-actions"},"output":{"annotations_count":0}}]' "$FX/checks.json" >"$FX/checks_all.json"
+refuses "a refused rerun hiding an earlier real failure" 5
+check "ci budget: the hidden failure is named" grep -q 'gate (failed on this head before Actions ran out of budget)' "$FX/out"
+fresh; budget_goal; budget_gate; review_head pass pass
+jq '. + [{"id":10,"name":"gate","status":"completed","conclusion":"cancelled","app":{"slug":"github-actions"},"output":{"annotations_count":0}}]' "$FX/checks.json" >"$FX/checks_all.json"
+merge 5; rc=$?
+check "ci budget: an earlier cancelled run does not block" test $rc -eq 0
+fresh; budget_goal; budget_gate; review_head pass pass
+jq '. + [(.[] | select(.name=="gate") | .id=10)]' "$FX/checks.json" >"$FX/checks_all.json"
+merge 5; rc=$?
+check "ci budget: two refused attempts of one check still merge" test $rc -eq 0
+fresh; budget_goal; budget_gate; review_head pass pass
+mutate '. + [{"id":12,"name":"export","status":"completed","conclusion":"failure","output":{"annotations_count":0}}]' checks.json
+refuses "a real failure beside a budget refusal" 5
+check "ci budget: the real failure is named" grep -q 'checks failing or pending: export' "$FX/out"
+fresh; budget_goal; review_head pass pass; merge 5
+check "green CI: no budget notice" bash -c '! grep -q "pr comment" "$1"' _ "$FX/gh.log"
 
 # ---- ship-merge: merge method
 fresh; bash "$H/goal.sh" set g; bash "$H/goal.sh" pr 5
