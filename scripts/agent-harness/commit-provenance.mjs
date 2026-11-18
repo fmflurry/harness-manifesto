@@ -55,12 +55,19 @@ function resolveMetadata(target) {
 if (process.argv[2] === 'setup') {
   const dir = path.join(process.argv[3], 'scripts/agent-harness/git-hooks');
   fs.mkdirSync(dir, { recursive: true });
+  // Relative so the links keep working when the target is copied, moved or committed by a project.
+  // Node resolves `self` through symlinks (macOS /var -> /private/var), so the dir must be canonical too.
+  const link = path.relative(fs.realpathSync(dir), self);
   for (const hook of hooks) {
     const dest = path.join(dir, hook);
-    try { fs.symlinkSync(self, dest); } catch (error) {
-      if (error.code !== 'EEXIST' || fs.readlinkSync(dest) !== self) throw error;
-    }
+    let current;
+    try { current = fs.readlinkSync(dest); } catch (error) { if (error.code !== 'ENOENT' && error.code !== 'EINVAL') throw error; }
+    if (current === link) continue;
+    fs.rmSync(dest, { force: true });
+    fs.symlinkSync(link, dest);
   }
+  // Generated per machine: a self-ignoring dir keeps project repos from versioning it.
+  fs.writeFileSync(path.join(dir, '.gitignore'), '*\n');
 } else if (process.argv[2] === 'capture') {
   const [, , , repo, target, version, assetRoot = target, customized = '0'] = process.argv;
   const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: repo, encoding: 'utf8' });
