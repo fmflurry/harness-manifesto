@@ -532,6 +532,14 @@ jq '. + [{"id":10,"name":"gate","status":"completed","conclusion":"failure","app
 refuses "a refused rerun hiding an earlier real failure" 5
 check "ci budget: the hidden failure is named" grep -q 'gate (failed on this head before Actions ran out of budget)' "$FX/out"
 fresh; budget_goal; budget_gate; review_head pass pass
+jq '. + [{"id":10,"name":"gate","status":"completed","conclusion":"cancelled","app":{"slug":"github-actions"},"output":{"annotations_count":0}}]' "$FX/checks.json" >"$FX/checks_all.json"
+merge 5; rc=$?
+check "ci budget: an earlier cancelled run does not block" test $rc -eq 0
+fresh; budget_goal; budget_gate; review_head pass pass
+jq '. + [(.[] | select(.name=="gate") | .id=10)]' "$FX/checks.json" >"$FX/checks_all.json"
+merge 5; rc=$?
+check "ci budget: two refused attempts of one check still merge" test $rc -eq 0
+fresh; budget_goal; budget_gate; review_head pass pass
 mutate '. + [{"id":12,"name":"export","status":"completed","conclusion":"failure","output":{"annotations_count":0}}]' checks.json
 refuses "a real failure beside a budget refusal" 5
 check "ci budget: the real failure is named" grep -q 'checks failing or pending: export' "$FX/out"

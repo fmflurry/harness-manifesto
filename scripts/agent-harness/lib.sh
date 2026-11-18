@@ -430,14 +430,15 @@ pr_problems() {
   budget="$(ci_budget_run_ids "$repo" "$runs" | jq -R 'tonumber? // empty' | jq -sc .)"
   jq -e 'type == "array"' <<<"$budget" >/dev/null 2>&1 || return 2
   if [ "$budget" != "[]" ]; then
-    # The list above holds only each check's latest run. A refused rerun must not hide a real failure before it.
+    # The list above holds only each check's latest run. A refused rerun must not hide a real failure before it;
+    # a cancelled or stale earlier run says nothing about the code, so only a failure or a timeout counts.
     local all all_budget masked
     all="$(gh_cmd api "repos/$repo/commits/$head/check-runs?filter=all" --paginate --jq '.check_runs[]' | jq -s .)" || return 2
     all_budget="$(ci_budget_run_ids "$repo" "$all" | jq -R 'tonumber? // empty' | jq -sc .)"
     masked="$(jq -r --argjson skip "$budget" --argjson refused "$all_budget" --argjson latest "$runs" '
       ([$latest[] | select(.id | IN($skip[])) | .name]) as $names
       | [.[] | select((.name | IN($names[])) and ((.id | IN($refused[])) | not) and .status == "completed"
-          and (.conclusion | IN("success", "skipped", "neutral") | not)) | .name | gsub("[\\r\\n]"; " ")]
+          and (.conclusion | IN("failure", "timed_out"))) | .name | gsub("[\\r\\n]"; " ")]
       | unique | join(", ")' <<<"$all")"
     [ -z "$masked" ] || echo "checks failing or pending: $masked (failed on this head before Actions ran out of budget)"
   fi
