@@ -264,7 +264,9 @@ agent-harness ship-merge <n> --confirmed  # interactive mode, after the user say
 - every `requiredChecks` entry passed on the head, and no other check run failed or is pending. A check
   GitHub Actions refused to start because the account is out of budget counts only when the goal records a passing
   code review and a passing security review of that exact head. Then `ship-merge` warns, merges, posts a "Merged
-  without CI" notice on the PR, and sets `ci_budget` on the goal. The outcome report says so too.
+  without CI" notice on the PR, and sets `ci_budget` on the goal. The outcome report says so too. A refused rerun
+  never hides an earlier real failure of that check on the same head. A configured `reviewStatus` is still required,
+  so a review workflow that cannot run blocks the merge.
 - zero unresolved review threads, and fewer than 100 threads
 - the branch is up to date with `<base>` (`behind_by` is 0)
 - no changed path matches `protectedPaths`, unless `--confirmed` is passed (a human merges such a PR)

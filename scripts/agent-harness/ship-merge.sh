@@ -83,7 +83,7 @@ fi
 state="$(gh_pr_view "$pr" state | jq -r .state)" || state=unknown
 [ "$state" = MERGED ] || refuse "merge failed (exit $merge_rc); PR state is $state"
 if [ -n "$budget_checks" ]; then
-  notice="⚠️ **Merged without CI.** GitHub Actions did not start $budget_checks on ${head:0:8}: the account is out of Actions budget (a failed payment or the spending limit). The merge relied on the local verification and the passing code and security reviews recorded for this head. Fix billing in Settings › Billing and plans, then re-run CI on $base to confirm."
+  notice="⚠️ **Merged without CI.** GitHub Actions did not start \`$budget_checks\` on ${head:0:8}: the account is out of Actions budget (a failed payment or the spending limit). The merge relied on the local verification and the passing code and security reviews recorded for this head. Fix billing in Settings › Billing and plans, then re-run CI on $base to confirm."
   gh_cmd pr comment "$pr" --body "$notice" >/dev/null 2>&1 || echo "ship-merge: could not post the CI budget notice on PR #$pr" >&2
   goal_update --arg c "$budget_checks" '.ci_budget = $c' || true
   kpi_emit ship ci_budget=skipped "pr=$pr"

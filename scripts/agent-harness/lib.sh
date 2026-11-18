@@ -389,18 +389,25 @@ protected_regex() {
   cfg_get '(.protectedPaths // []) | join("|")'
 }
 
-# GitHub's annotation on a job it refused to start because the account is out of Actions budget.
-CI_BUDGET_RE='account payments have failed|spending limit needs to be increased'
+# GitHub's own failure annotation on a job it refused to start because the account is out of Actions budget.
+CI_BUDGET_RE='^The job was not started because (recent account payments have failed|your spending limit needs to be increased)'
 
 # ci_budget_run_ids <repo> <check-runs-json>: ids of the failed runs GitHub Actions never started for budget,
-# one per line. Such a run tested nothing, so it is neither a pass nor a failure of the change.
+# one per line. Such a run tested nothing, so it is neither a pass nor a failure of the change. All of these must
+# hold: the run is GitHub Actions' own, its job got no runner and ran no step, and every failure annotation on it is
+# GitHub's budget message. A job that ran can print the same words, but it has a runner, steps, and its own failure.
 ci_budget_run_ids() {
-  local repo="$1" id messages
+  local repo="$1" id idle annotations
   while IFS= read -r id; do
     [ -n "$id" ] || continue
-    messages="$(gh_cmd api "repos/$repo/check-runs/$id/annotations" --jq '.[].message' 2>/dev/null)" || continue
-    if grep -qiE "$CI_BUDGET_RE" <<<"$messages"; then printf '%s\n' "$id"; fi
-  done <<<"$(jq -r '.[] | select(.status == "completed" and .conclusion == "failure"
+    idle="$(gh_cmd api "repos/$repo/actions/jobs/$id" --jq '((.steps // []) | length) == 0 and (.runner_name // "") == ""' 2>/dev/null)" || continue
+    [ "$idle" = true ] || continue
+    annotations="$(gh_cmd api "repos/$repo/check-runs/$id/annotations" --paginate --jq '.[]' 2>/dev/null | jq -s .)" || continue
+    if jq -e --arg re "$CI_BUDGET_RE" '[.[] | select(.annotation_level == "failure") | .message]
+      | length > 0 and all(test($re; "i"))' <<<"$annotations" >/dev/null 2>&1; then
+      printf '%s\n' "$id"
+    fi
+  done <<<"$(jq -r '.[] | select(.status == "completed" and .conclusion == "failure" and .app.slug == "github-actions"
     and ((.output.annotations_count // 0) > 0)) | .id' <<<"$2")"
 }
 
@@ -421,8 +428,21 @@ pr_problems() {
 
   runs="$(gh_cmd api "repos/$repo/commits/$head/check-runs" --paginate --jq '.check_runs[]' | jq -s .)" || return 2
   budget="$(ci_budget_run_ids "$repo" "$runs" | jq -R 'tonumber? // empty' | jq -sc .)"
+  jq -e 'type == "array"' <<<"$budget" >/dev/null 2>&1 || return 2
+  if [ "$budget" != "[]" ]; then
+    # The list above holds only each check's latest run. A refused rerun must not hide a real failure before it.
+    local all all_budget masked
+    all="$(gh_cmd api "repos/$repo/commits/$head/check-runs?filter=all" --paginate --jq '.check_runs[]' | jq -s .)" || return 2
+    all_budget="$(ci_budget_run_ids "$repo" "$all" | jq -R 'tonumber? // empty' | jq -sc .)"
+    masked="$(jq -r --argjson skip "$budget" --argjson refused "$all_budget" --argjson latest "$runs" '
+      ([$latest[] | select(.id | IN($skip[])) | .name]) as $names
+      | [.[] | select((.name | IN($names[])) and ((.id | IN($refused[])) | not) and .status == "completed"
+          and (.conclusion | IN("success", "skipped", "neutral") | not)) | .name | gsub("[\\r\\n]"; " ")]
+      | unique | join(", ")' <<<"$all")"
+    [ -z "$masked" ] || echo "checks failing or pending: $masked (failed on this head before Actions ran out of budget)"
+  fi
   bad="$(jq -r --argjson skip "$budget" '[.[] | select((.id | IN($skip[])) | not)
-    | select(.status != "completed" or (.conclusion | IN("success", "skipped", "neutral") | not)) | .name]
+    | select(.status != "completed" or (.conclusion | IN("success", "skipped", "neutral") | not)) | .name | gsub("[\\r\\n]"; " ")]
     | unique | join(", ")' <<<"$runs")"
   [ -z "$bad" ] || echo "checks failing or pending: $bad"
   while IFS= read -r name; do
@@ -431,7 +451,8 @@ pr_problems() {
       or (.status == "completed" and (.conclusion | IN("success", "skipped", "neutral")))))' \
       <<<"$runs" >/dev/null || echo "required check '$name' missing or not passing"
   done <<<"$(cfg_get '(.requiredChecks // [])[]')"
-  name="$(jq -r --argjson skip "$budget" '[.[] | select(.id | IN($skip[])) | .name] | unique | join(", ")' <<<"$runs")"
+  name="$(jq -r --argjson skip "$budget" '[.[] | select(.id | IN($skip[])) | .name | gsub("[\\r\\n`]"; " ")]
+    | unique | join(", ")' <<<"$runs")"
   [ -z "$name" ] || echo "ci-budget: $name"
 
   rs="$(cfg_get '.reviewStatus // empty')"
